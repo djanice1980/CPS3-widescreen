@@ -280,11 +280,29 @@ void wide_text_frame(void) {
     src = (const u32 *)SHADOW;
     dst = (volatile u32 *)TEXT_MAP;
     if (!WIDE_ON) {
-        for (k = 0; k < MAP_ROWS * 64; k += 4) {
-            dst[k] = src[k];
-            dst[k + 1] = src[k + 1];
-            dst[k + 2] = src[k + 2];
-            dst[k + 3] = src[k + 3];
+        /* 4:3 shows columns 0..47 only. This runs twice a frame in the game's own mode and its time is not
+           free: the scheduler idles through about 350 passes a frame, and a few effects advance with those
+           passes, so the frames around some transitions differ from the unpatched game by as much as this
+           takes (measured in MAME: the unpatched text path plus only this copy's time gives exactly the
+           patched frames). So: the fewest instructions, 48 loads and stores a row, no index arithmetic
+           (about 9,000 a call; it was 27,000 with all 64 columns and indexed access). */
+        const u32 *s = src;
+        u32 *d = (u32 *)TEXT_MAP;
+        for (row = MAP_ROWS; row != 0; row--) {
+            for (k = VIS_COLS / 8; k != 0; k--) {
+                d[0] = s[0];
+                d[1] = s[1];
+                d[2] = s[2];
+                d[3] = s[3];
+                d[4] = s[4];
+                d[5] = s[5];
+                d[6] = s[6];
+                d[7] = s[7];
+                s += 8;
+                d += 8;
+            }
+            s += 64 - VIS_COLS;
+            d += 64 - VIS_COLS;
         }
         return;
     }

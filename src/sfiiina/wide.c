@@ -76,7 +76,8 @@ extern TMSCRIPT gcfg_exit_guide_scr_jp[1];
 
 /* English page: rows 14 and 16, SCREEN MODE where EXIT was, EXIT a row lower */
 static const s8 wide_line_screen_en[] = "6. SCREEN MODE        \n";
-static const s8 wide_line_exit_en[] = "7. EXIT\n";
+/* the last line has no newline: tilemap_print_string takes one as "go on with the next TM_STRING" */
+static const s8 wide_line_exit_en[] = "7. EXIT";
 static const TM_STRING wide_lines_en[2] = {
     { 3, 14, 2, wide_line_screen_en },
     { 3, 16, 2, wide_line_exit_en },

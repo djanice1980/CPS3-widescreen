@@ -3,7 +3,8 @@
 
     gen_hud.py <decomp src dir> <hud.tsv> <out .c> <out hooks .tsv>
 
-hud.tsv lists "<source file><TAB><function>". Each function's text is copied from the decomp as it is, renamed
+hud.tsv lists "<source file><TAB><function>" (and "<TAB>screen" for a routine that erases the whole screen: see
+screen_edge). Each function's text is copied from the decomp as it is, renamed
 wide_<function>, with the column arguments of the text-layer primitives it calls offset by HUD_DX: DE_X[3], the game's own
 text-centring offset (7 columns, 56 pixels, in the wide screen mode; 0 in the normal one). So in the normal mode
 the copies draw where the originals do, and in the wide mode the 384-pixel HUD sits in the middle of the
@@ -32,6 +33,11 @@ COLUMN_ARGS = {
     'sc_ram_to_vram_opc': (1,),
     'sq_paint_chenge': (0,),
     'tilemap_clear_rect': (0, 2),
+    'scfont_lnput': (0,),
+    'scfont_lnput_rev': (0,),
+    'scfont_sqput': (0,),
+    'scfont_sqput_rev': (0,),
+    'scfont_fill': (0,),
 }
 
 
@@ -55,7 +61,20 @@ def call_args(text, open_paren):
         i += 1
 
 
-def shift_columns(body):
+def screen_edge(arg, k):
+    """A whole-screen erase (hud.tsv option "screen"): the 384-pixel screen's own edges stay the screen's edges.
+    Column 0 stays 0 and column 47 becomes the wide screen's last column; a boundary between the two players'
+    halves moves with the HUD. (Text the game already places by screen mode, such as the win counts, sits at
+    the screen edges, outside the moved HUD.)"""
+    a = arg.strip()
+    if k == 0 and a == '0':
+        return a
+    if k == 2 and a == '47':
+        return '47 + 2 * HUD_DX'
+    return f'({a}) + HUD_DX'
+
+
+def shift_columns(body, screen=False):
     """Add HUD_DX to the column arguments of every primitive call in a function body; count the edits."""
     out, pos, edits = [], 0, 0
     pat = re.compile(r'\b(' + '|'.join(COLUMN_ARGS) + r')\s*\(')
@@ -64,7 +83,10 @@ def shift_columns(body):
             continue  # inside a call already rewritten
         args, end = call_args(body, m.end() - 1)
         for k in COLUMN_ARGS[m.group(1)]:
-            args[k] = f'({args[k].strip()}) + HUD_DX'
+            if screen and m.group(1) == 'tilemap_clear_rect':
+                args[k] = screen_edge(args[k], k)
+            else:
+                args[k] = f'({args[k].strip()}) + HUD_DX'
             edits += 1
         out.append(body[pos:m.start()] + m.group(1) + '(' + ', '.join(a.strip() for a in args) + ')')
         pos = end
@@ -118,18 +140,19 @@ def main():
     for line in open(spec):
         line = line.split('#')[0].strip()
         if line:
-            f, fn = line.split()
-            want.setdefault(f, []).append(fn)
+            f, fn, *opt = line.split()
+            assert opt in ([], ['screen']), line
+            want.setdefault(f, []).append((fn, bool(opt)))
     incs, decls, bodies, hooks = [], [], [], []
     for f, fns in want.items():
         text = open(f'{src}/{f}', encoding='latin-1').read()
         i, d = preamble(text)
         incs += [x for x in i if x not in incs]
         decls += [x for x in d if x not in decls]
-        for fn in fns:
+        for fn, screen in fns:
             body = function_text(text, fn)
             head = body.index('{')
-            body, edits = shift_columns(body[head:])
+            body, edits = shift_columns(body[head:], screen)
             body = re.sub(rf'\b{fn}(\s*\()', rf'wide_{fn}\1', function_text(text, fn)[:head], count=1) + body
             if not edits:
                 sys.exit(f'{fn}: no text-layer call to move')

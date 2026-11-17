@@ -43,8 +43,12 @@ MODULE_CONST = 0x065C3000   # CWIDE
 DISPATCH = 0x065C4000
 COPIES = 0x065C5000
 FREE = (0x06500000, 0x065D7A60)  # zero-filled, no reads during attract + play (MAME read tap)
-WIDE_FLAG = 0x0207F000
-TEXT_DIRTY = 0x0207F008  # set by copy B (and the plane base getter): the shadow changed (src/jojoba/wide.c)
+# the module's RAM (src/jojoba/wide.c says why it is here and not at 0207F000, where the Darksoft region byte and
+# no-CD flag are)
+WIDE_FLAG = 0x0207C000   # holds WIDE_MARK in wide mode
+WIDE_MARK = 0x5A
+TEXT_DIRTY = 0x0207C008  # set by copy B (and the plane base getter): the shadow changed
+DARKSOFT_BYTES = (0x0207F000, 0x0207F100)  # the module must not have a pointer into this range (checked below)
 
 SHADOW = 0x02074000  # the tile map's RAM shadow (src/jojoba/wide.c), 16 KB of RAM the game never uses
 # copy B's literals: text RAM tile map start and end -> the shadow's; the 16 KB wrap mask (FFFE3FFF clears the
@@ -224,8 +228,8 @@ def dispatcher(at, copy_a, copy_b):
     code = [
         0xD000,  # mov.l @(flag),r0       (displacements filled below)
         0x6000,  # mov.b @r0,r0
-        0x2008,  # tst r0,r0
-        0x8B02,  # bf wide                (index 7: disp = (7*2 - (3*2 + 4)) / 2)
+        0x8800 | WIDE_MARK,  # cmp/eq #WIDE_MARK,r0
+        0x8902,  # bt wide                (index 7: disp = (7*2 - (3*2 + 4)) / 2)
         0xD000,  # mov.l @(a),r0
         0x402B,  # jmp @r0
         0x0009,  # nop
@@ -388,6 +392,12 @@ def main():
     row = G['window_row7']
     assert struct.unpack_from('>9h', stock, row - BASE) == WINDOW_ROW7_STOCK
     struct.pack_into('>9h', img, row - BASE, *WINDOW_ROW7_3S)
+
+    # the Darksoft region byte and no-CD flag: the patch must add no pointer to them (the game's own stay)
+    def darksoft_pointers(image):
+        return [BASE + i for i in range(0, SIZE, 4)
+                if DARKSOFT_BYTES[0] <= struct.unpack_from('>I', image, i)[0] < DARKSOFT_BYTES[1]]
+    assert darksoft_pointers(img) == darksoft_pointers(stock), 'the patch points into the Darksoft bytes'
 
     out_prog = os.path.join(out_dir, f'{game}-wide-prog.bin')
     open(out_prog, 'wb').write(img)

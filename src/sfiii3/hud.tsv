@@ -27,3 +27,11 @@ spgauge.c	sa_moji_trans
 spgauge.c	sa_waku_trans
 spgauge.c	spgauge_wipe_write
 spgauge.c	sa_gauge_trans
+
+# the centre-screen pictures (K.O., YOU WIN / LOSE, PERFECT, TIME OVER, DRAW GAME, winner): their cell sets have
+# fixed 384-pixel columns, while the blink and erase rectangles of their callers already move by DE_X[3]
+sc_trans.c	sc_picture_put
+# the "here comes a new challenger" banner: drawn at column 0, erased at DE_X[3] (entry_2.c)
+sc_trans.c	break_into_banner_trans
+# end of a match: erases the whole screen's text (columns 0..47 in 4:3), one player's top rows first
+manage_2.c	Game_Manage_8_2	screen

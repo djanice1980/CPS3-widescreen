@@ -245,8 +245,15 @@ def apply_body(at):
     return code + struct.pack('>I', APPLY + len(APPLY_START)), [(at, len(code))]
 
 
+# Literals that must keep the real text RAM address: the test menu's memory check tests the SS RAM itself
+# (0600DB50: mov.l #0000C800,r5 / mov.l #25040000,r4 / bsr 0600D758, a save / pattern / restore word test).
+# {literal: (value, the only routine that may load it)}
+HARDWARE_LITERALS = {0x0600DBBC: (0x25040000, (0x0600DB34, 0x0600DBBC))}
+
+
 def text_literals(stock):
-    """Literal pool words that code loads (mov.l) and that hold a text tile map address: {literal addr: value}."""
+    """Literal pool words that code loads (mov.l) and that hold a text tile map address: {literal addr: value}.
+    HARDWARE_LITERALS are left out, after checking that only their own routine loads them."""
     h = lambda a: struct.unpack_from('>H', stock, a - BASE)[0]
     out = {}
     for a in range(CODE[0], CODE[1], 2):
@@ -254,7 +261,10 @@ def text_literals(stock):
         if op >> 12 == 0xD:
             lit = (a & ~3) + 4 + 4 * (op & 0xFF)
             v = struct.unpack_from('>I', stock, lit - BASE)[0]
-            if TEXT_MAP[0] <= v < TEXT_MAP[1]:
+            if lit in HARDWARE_LITERALS:
+                want, (lo, hi) = HARDWARE_LITERALS[lit]
+                assert v == want and lo <= a < hi, f'{a:08X} loads the hardware literal {lit:08X}'
+            elif TEXT_MAP[0] <= v < TEXT_MAP[1]:
                 out[lit] = v
     return out
 

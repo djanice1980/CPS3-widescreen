@@ -264,24 +264,21 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
   were not run here.
 - Some non-fight screens (continue, game over, results, a few intro scenes) are still drawn at 4:3 width, with
   black side bars or an offset picture.
-- 3rd Strike, Makoto Fix and 4rd Strike in WIDE: the center-screen fight messages ("K.O.", "YOU LOSE", "PERFECT",
-  time over, winner) appear left of center, and parts of them stay on screen into the next round. The label of a
-  timed super art (such as Yun's Genei-Jin) is drawn in its 4:3 place and stays until the next round. After a
-  match, the right end of the 2P HUD stays for a few frames.
-- New Generation, English GAME CONFIGURATION page (both modes): two stray tiles appear in the top-left corner of
-  the page.
-- **JoJo's Venture and JoJo HFTF on a real Darksoft board (both modes, not yet fixed):** the patch keeps its own
-  variables at RAM 0207F000-0207F00F, and the Darksoft versions of the games read their region byte (0207F000) and
-  no-CD flag (0207F004) from there at boot. The patch clears the no-CD flag before the game tests it, so the game
-  runs the CD-ROM drive scan that the flag exists to skip, and the "( N C D )" line is missing from the boot
-  title. Whether that only delays the boot or hangs it on a board without a drive is not known. MAME does not
-  show this, because its BIOS leaves both bytes at 0. Until this is fixed, treat the patched JoJo banks as
-  untested on hardware.
+- 3rd Strike, Makoto Fix and 4rd Strike in WIDE: the label of a timed super art (such as Yun's Genei-Jin) now
+  moves with the gauge, but this fix was not replayed in MAME (it needs that character with a full gauge). The
+  bonus stage's score digits may still sit at their 4:3 column (seen in the source, not tried).
+- **JoJo's Venture and JoJo HFTF on a real Darksoft board:** up to v1.1.1 the patch kept its variables on the RAM
+  bytes the Darksoft versions of the games read at boot (region at 0207F000, no-CD flag at 0207F004), so the
+  game ran the CD-ROM drive scan the flag exists to skip. Fixed in v1.2.0: the variables moved to 0207C000, and
+  with the two bytes set as a Darksoft board has them the patched boot is identical to the unpatched one in
+  MAME. It is still not confirmed on hardware.
 - Warzard (both modes): all text is drawn through a copy in RAM that reaches the screen once per frame.
   - The test menu's memory check shows no progress for 25 to 50 seconds and then every result at once.
-  - Its SS RAM row tests that copy instead of the real text RAM, so it cannot report bad text RAM.
-  - The copy takes CPU time every frame, so on NORMAL the game is not frame-for-frame identical to the unpatched
-    one during play (the same scripted inputs lead to different fights in MAME). No slowdown was seen.
+  - The copy takes CPU time every frame. The game has plenty to spare (its scheduler still idles through about
+    330 of its usual 350 passes a frame; no slowdown), but a few effects advance with those passes, so on NORMAL
+    some frames differ from the unpatched game (measured: 57 of 121 frames around one scene transition) and, as
+    the game's random numbers follow, the same scripted inputs lead to different fights. This cannot be brought
+    to zero with this design; v1.2.0 cut the copy to a third.
 - JoJo games in WIDE: the last rows of the test menu's memory check never appear ("FLASH SIMM6 CHECKING..." stays
   on screen).
 - At the edges of the wider view, some stage objects can appear a moment late.

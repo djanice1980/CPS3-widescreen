@@ -29,14 +29,23 @@ typedef unsigned long u32;
 
 #pragma section WIDE
 
-/* the module's RAM: 0207F000-0207F0FF, never used by the game (the BIOS clears it at boot) */
-#define WIDE_ON     (*(volatile u8*)0x0207F000)  /* wide mode in effect (the SCREEN MODE setting at boot) */
-#define CAM_LIVE    (*(volatile u8*)0x0207F001)  /* frames the fight camera counts as running */
-#define CAM_POS     (*(volatile u8*)0x0207F002)  /* next slot in CAM_HIST */
-#define CAM_LAG     (*(volatile u8*)0x0207F003)  /* camera frames between the camera and the picture */
-#define SHIFT_NOW   (*(volatile s16*)0x0207F004) /* the world shift used this frame (for tests) */
-#define TEXT_DIRTY  (*(volatile u8*)0x0207F008)  /* the shadow was drawn into (copy B's dispatchers set it too) */
-#define CAM_HIST    ((volatile s16*)0x0207F010)  /* camera x, last 4 camera frames */
+/*
+ * The module's RAM: 0207C000-0207C01F, after the text shadow (02074000, 16 KB) and the 16 KB behind it that text
+ * past the map's last row can reach. Neither game has a pointer into 02071510-0207EFFF (both programs scanned).
+ * NOT 0207F000: the Darksoft versions of the games read their region byte from 0207F000 and their no-CD flag from
+ * 0207F004 at boot (the Darksoft BIOS puts them there), so nothing of ours may be written near them.
+ * Nothing is assumed about this RAM at power-on: wide mode is on only while WIDE_FLAG holds WIDE_MARK (the
+ * dispatchers of tools/build_jojoba.py test the same value), and wide_boot_load sets everything else.
+ */
+#define WIDE_FLAG   (*(volatile u8*)0x0207C000)  /* WIDE_MARK: wide mode in effect (the SCREEN MODE setting at boot) */
+#define WIDE_MARK   0x5A
+#define WIDE_ON     (WIDE_FLAG == WIDE_MARK)
+#define CAM_LIVE    (*(volatile u8*)0x0207C001)  /* frames the fight camera counts as running */
+#define CAM_POS     (*(volatile u8*)0x0207C002)  /* next slot in CAM_HIST */
+#define CAM_LAG     0                            /* camera frames between the camera and the picture */
+#define SHIFT_NOW   (*(volatile s16*)0x0207C004) /* the world shift used this frame (for tests) */
+#define TEXT_DIRTY  (*(volatile u8*)0x0207C008)  /* the shadow was drawn into (copy B's dispatchers set it too) */
+#define CAM_HIST    ((volatile s16*)0x0207C010)  /* camera x, last 4 camera frames */
 
 /* the game's */
 #define CAMERA_X    (*(volatile s16*)G_CAMERA_X) /* camera x (16.16, integer part): left edge of the view */
@@ -170,7 +179,10 @@ void wide_cfg_change(s32 dir) {
 /* boot (also after the service menu): the game reads EEPROM, then the screen mode is fixed until the next boot */
 s32 wide_boot_load(s32 a, s32 b, s32 c, s32 d) {
     s32 r = ((method)G_EE_LOAD)(a, b, c, d);
-    WIDE_ON = EE_WIDE & 1;
+    CAM_LIVE = 0;
+    CAM_POS = 0;
+    TEXT_DIRTY = 1;
+    WIDE_FLAG = (EE_WIDE & 1) ? WIDE_MARK : 0;
     return r;
 }
 
