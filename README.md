@@ -239,10 +239,26 @@ On top of the requirements above it needs:
 - **Darksoft Custom SH2 files:** new instructions are stored encrypted the way Darksoft stores the rest of each
   bank, and the checksum byte of each SIMM is kept unchanged so the board's memory test still passes.
 
+## License
+
+Copyright (C) 2026 David Janice
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero
+General Public License as published by the Free Software Foundation, version 3. It is distributed WITHOUT ANY
+WARRANTY; see [LICENSE](LICENSE) for the full terms.
+
+If you reuse or adapt this code, keep this copyright notice and credit this project, and release your version
+under the same license with its source.
+
+The license covers this project's own code and patches only. It grants no rights to Capcom's games, ROM data or
+trademarks. The 3rd Strike family and New Generation code is built on gibletto's decompilations, which are
+themselves AGPL-3.0.
+
 ## Credits
 
 - [gibletto](https://github.com/gibletto)'s 3rd Strike and New Generation decompilations and rebuilt SHC
-  toolchain, which the 3rd Strike family and New Generation patches are built from.
+  toolchain, which the 3rd Strike family and New Generation patches are built from (AGPL-3.0). Parts of those
+  were ported from [crowded-street/3s-decomp](https://github.com/crowded-street/3s-decomp).
 - [Jotego](https://github.com/jotego/jtcores)'s CPS3 core, whose published MRAs define the MiSTer layout.
 - MAME's CPS3 driver, for the decryption keys and ROM layout.
 - Darksoft, for the multi-game kit and pack these patches target.
