@@ -99,7 +99,11 @@ GAMES = [
          year=1999, buttons=BUTTONS6),
     dict(bank=6, slug='sfiii-3rd-strike-makoto-fix', id='sfiii3mkw', title='Street Fighter III 3rd Strike: Makoto Fix',
          mame='sfiii3n', prefix='sfiii3', machine='sfiii3', key='sfiii3', bios='sfiii3', eeprom='sfiii3n',
-         year=1999, buttons=BUTTONS6),
+         year=1999, buttons=BUTTONS6,
+         # packs with two SIMM 5 files for this bank (2021-04-02): one game per file, by file-name suffix
+         gfx={'_MakotoFIX': {},
+              '_reTHIRD': dict(slug='sfiii-3rd-strike-makoto-fix-rethird', id='sfiii3rtw',
+                               title='Street Fighter III 3rd Strike: Makoto Fix (reTHIRD)')}),
     dict(bank=7, slug='sfiii-4rd-strike', id='sfiii4rw', title='Street Fighter III 4rd Strike',
          mame='sfiii3n', prefix='sfiii3', machine='sfiii3', key='sfiii3', bios='sfiii3', eeprom='sfiii3n',
          year=1999, buttons=BUTTONS6),
@@ -167,7 +171,7 @@ def set_chips(game, simm12_dir, simm36_dir, bios_plain):
     assert BIOSES and game['bios'] == key, 'a BIOS only runs with its own key (see GAMES)'
     out = {mame_bios_name(game): crypt_words(bios_plain, 0, key)}
     prog = read_program_bank(simm12_dir, game['bank'], 'Standard')
-    gfx = gfx_chips(simm36_dir, game['bank'])
+    gfx = gfx_chips(simm36_dir, game['bank'], game.get('gfx_variant'))
     for simm, n in MACHINES[game['machine']].items():
         if simm <= 2:
             base = 0x06000000 + (simm - 1) * 0x800000

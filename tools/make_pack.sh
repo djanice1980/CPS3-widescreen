@@ -22,7 +22,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [ $# -ge 2 ] || { sed -n '2,/^set -e/p' "$0" | sed '$d'; exit 2; }
-PACK_IN=$(realpath "$1") OUT=$(realpath -m "$2")
+PACK_IN=$(realpath -s "$1") OUT=$(realpath -m "$2")
 shift 2
 FORMATS=darksoft ROMS=("$ROOT/rom") BUILD=
 while [ $# -gt 0 ]; do
@@ -37,35 +37,31 @@ done
 for f in ${FORMATS//,/ }; do
     case $f in darksoft|mame|mister) ;; *) echo "unknown format $f (darksoft, mame, mister, all)"; exit 2 ;; esac
 done
-want() { [[ ",$FORMATS," == *",$1,"* ]]; }
 B="$ROOT/build"
 export WINEPREFIX="${WINEPREFIX:-$B/wineprefix}"
 
-echo '== pack'
-if [ -d "$PACK_IN" ]; then
-    PACK="$PACK_IN"
-else
-    PACK="$B/darksoft-pack"
-    rm -rf "$B/darksoft-extract" && mkdir -p "$B/darksoft-extract"
-    7z x -bd -y -o"$B/darksoft-extract" "$PACK_IN" >/dev/null
-    found=$(find "$B/darksoft-extract" -type d -name 'SIMM 1-2' | head -1)
-    [ -n "$found" ] || { echo "no 'SIMM 1-2' folder in $PACK_IN"; exit 1; }
-    rm -rf "$PACK" && mv "$(dirname "$found")" "$PACK" && rm -rf "$B/darksoft-extract"
-fi
-
 P="$ROOT/patches"
 if [ -n "$BUILD" ]; then
+    echo '== pack'
+    if [ -d "$PACK_IN" ]; then
+        PACK="$PACK_IN"
+    else
+        PACK="$B/darksoft-pack"
+        rm -rf "$B/darksoft-extract" && mkdir -p "$B/darksoft-extract"
+        7z x -bd -y -o"$B/darksoft-extract" "$PACK_IN" >/dev/null
+        found=$(find "$B/darksoft-extract" -type d -name 'SIMM 1-2' | head -1)
+        [ -n "$found" ] || { echo "no 'SIMM 1-2' folder in $PACK_IN"; exit 1; }
+        rm -rf "$PACK" && mv "$(dirname "$found")" "$PACK" && rm -rf "$B/darksoft-extract"
+    fi
+
     echo '== 3rd Strike build (bank 5 patch)'
     "$ROOT/tools/build_sfiii3.sh"
 
     echo '== Makoto Fix (bank 6) and 4rd Strike (bank 7) ports'
     mkdir -p "$B/banks"
-    python3 -c "
-    import sys; sys.path.insert(0, '$ROOT/tools')
-    from darksoft import read_program_bank
-    for b in (0, 1, 3, 4, 6, 7):
-        open('$B/banks/bank%d-std.bin' % b, 'wb').write(read_program_bank('$PACK/SIMM 1-2', b, 'Standard'))
-    "
+    python3 -c "import sys; sys.path.insert(0, '$ROOT/tools'); from darksoft import read_program_bank
+for b in (0, 1, 3, 4, 6, 7):
+    open('$B/banks/bank%d-std.bin' % b, 'wb').write(read_program_bank('$PACK/SIMM 1-2', b, 'Standard'))"
     cd "$ROOT/vendor/sfIII3-cps3-decomp"
     python3 "$ROOT/tools/port_bank.py" "$B/banks/bank6-std.bin" makoto 06700000 06740000 "$B/banks" | grep -v 'MESA\|pci id'
     # 4rd Strike keeps data of its own in 06620000-06780395: its module goes in the free end of SIMM2
@@ -101,46 +97,6 @@ if [ -n "$BUILD" ]; then
 fi
 [ -f "$P/bank5-sfiii-3rd-strike.json" ] || { echo "no prebuilt patches in $P: run with --build"; exit 1; }
 
-cd "$ROOT"
-echo '== patch'
-O="$B/ds-final"
-rm -rf "$O"
-python3 -I tools/patch_darksoft.py "$PACK" "$P/bank0-sfiii-new-generation.json" 0 "$O"
-python3 -I tools/patch_darksoft.py "$PACK" "$P/bank5-sfiii-3rd-strike.json" 5 "$O" --in-place
-python3 -I tools/patch_darksoft.py "$PACK" "$P/bank6-sfiii-makoto-fix.json" 6 "$O" --in-place
-python3 -I tools/patch_darksoft.py "$PACK" "$P/bank7-sfiii-4rd-strike.json" 7 "$O" --in-place
-python3 -I tools/patch_darksoft.py "$PACK" "$P/bank4-jojos-bizarre-adventure.json" 4 "$O" --in-place --kind Standard
-python3 -I tools/patch_darksoft.py "$PACK" "$P/bank3-jojos-venture.json" 3 "$O" --in-place --kind Standard
-python3 -I tools/patch_darksoft.py "$PACK" "$P/bank1-warzard.json" 1 "$O" --in-place
-python3 -I tools/check_custom.py "$PACK" "$O" 0 "$P/bank0-sfiii-new-generation-code.json"
-python3 -I tools/check_custom.py "$PACK" "$O" 5 "$P/bank5-sfiii-3rd-strike-code.json"
-python3 -I tools/check_custom.py "$PACK" "$O" 6 "$P/bank6-sfiii-makoto-fix-code.json"
-python3 -I tools/check_custom.py "$PACK" "$O" 7 "$P/bank7-sfiii-4rd-strike-code.json"
-python3 -I tools/check_custom.py "$PACK" "$O" 1 "$P/bank1-warzard-code.json"
-
-mkdir -p "$OUT"
-if want darksoft; then
-    echo '== Darksoft pack zip'
-    OUT_ZIP="$OUT/$(basename "$PACK_IN" .7z) - widescreen (SFIII NG, 3rd Strike, Makoto Fix, 4rd Strike, JoJo HFTF, JoJo Venture, Warzard).zip"
-    rm -f "$OUT_ZIP"
-    python3 -I - "$O" "$OUT_ZIP" <<'PY'
-import os, sys, zipfile
-root, out = sys.argv[1], sys.argv[2]
-with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-    for d, _, fs in sorted(os.walk(root)):
-        for f in sorted(fs):
-            z.write(os.path.join(d, f), os.path.relpath(os.path.join(d, f), root))
-with zipfile.ZipFile(out) as z:
-    assert z.testzip() is None
-print(f'{out}: {os.path.getsize(out) // 2**20} MB')
-PY
-fi
-
-if want mame || want mister; then
-    echo '== MAME sets / MiSTer MRAs'
-    args=()
-    for r in "${ROMS[@]}"; do args+=(--roms "$r"); done
-    want mame && { rm -rf "$OUT/MAME"; args+=(--mame "$OUT/MAME"); }
-    want mister && { rm -rf "$OUT/MiSTer"; args+=(--mister "$OUT/MiSTer"); }
-    python3 -I tools/export_sets.py "$O" --stock "$PACK" "${args[@]}"
-fi
+args=(--format "$FORMATS")
+for r in "${ROMS[@]}"; do args+=(--roms "$r"); done
+python3 -I "$ROOT/tools/cps3ws.py" "$PACK_IN" "$OUT" "${args[@]}"

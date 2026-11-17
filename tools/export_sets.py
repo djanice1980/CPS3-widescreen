@@ -20,6 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cps3sets as C  # noqa: E402
 from darksoft import read_program_bank  # noqa: E402
+from darksoft_gfx import variants  # noqa: E402
 
 MAME_README = '''Widescreen CPS3 games for MAME (made from a Darksoft CPS-3 pack; tested with MAME 0.289)
 
@@ -66,14 +67,14 @@ def mra_file_name(title):
     return title.replace(': ', ' - ').replace(' / ', ' - ').replace('/', '-') + ' (widescreen).mra'
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('patched')
     ap.add_argument('--roms', action='append', default=[], required=True)
     ap.add_argument('--stock')
     ap.add_argument('--mame')
     ap.add_argument('--mister')
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     s12, s36 = os.path.join(a.patched, 'SIMM 1-2'), os.path.join(a.patched, 'SIMM 3-6')
 
     found = C.find_bioses(a.roms)
@@ -87,7 +88,19 @@ def main():
             print(f'BIOS {crc} ({C.BIOSES[crc][1]}) from {where}')
 
     mame_rows, mister_rows, bios_rows = [], [], []
-    for g0 in C.GAMES:
+    games = []
+    for g in C.GAMES:
+        vs = variants(s36, g['bank'])
+        if not vs:
+            games.append(g)
+            continue
+        unknown = [v for v in vs if v not in g.get('gfx', {})]
+        if unknown:
+            sys.exit(f'{g["title"]}: the pack has graphics files {vs} for bank {g["bank"]}; '
+                     f'cps3sets.GAMES does not say what {unknown} are')
+        for v in vs:
+            games.append(dict(g, **g['gfx'][v], gfx_variant=v))
+    for g0 in games:
         picked = C.pick_bios(g0, found)
         if not picked:
             print(f'== {g0["title"]}: SKIPPED, needs its own NO CD set or a 3rd Strike NO CD set (sfiii3n/sfiii3nr1)')
@@ -149,15 +162,15 @@ def main():
                     assert got == prog[base - 0x06000000:base - 0x06000000 + 0x800000], (g['slug'], simm)
             assert C.crypt_words(stream[32:32 + C.BIOS_SIZE], 0, g['key']) == plain
             mra = os.path.join(md, mra_file_name(g['title']))
-            open(mra, 'w').write(text)
+            open(mra, 'w', encoding='utf-8', newline='\n').write(text)
             mister_rows.append(f'  {os.path.basename(mra)}  ->  games/mame/{zname}')
             print(f'  {mra} (assembles to {len(stream):#x} bytes, md5 {C.md5(stream)})')
 
     if a.mame:
-        open(os.path.join(a.mame, 'README.txt'), 'w').write(
+        open(os.path.join(a.mame, 'README.txt'), 'w', encoding='utf-8', newline='\n').write(
             MAME_README.format(table='\n'.join(mame_rows), bios='\n'.join(bios_rows)))
     if a.mister:
-        open(os.path.join(a.mister, 'README.txt'), 'w').write(MISTER_README.format(table='\n'.join(mister_rows)))
+        open(os.path.join(a.mister, 'README.txt'), 'w', encoding='utf-8', newline='\n').write(MISTER_README.format(table='\n'.join(mister_rows)))
 
 
 if __name__ == '__main__':

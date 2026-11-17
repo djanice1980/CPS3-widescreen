@@ -4,8 +4,8 @@ Widescreen (495 x 224) for seven Capcom CPS3 games, switched on and off from eac
 new SCREEN MODE setting. With the setting on NORMAL the games draw the same picture as before (checked frame by
 frame in MAME against the unpatched games for the four Street Fighter III games and Warzard).
 
-The patch is applied to your own **Darksoft CPS-3 multi-game pack** (the 2021-01-09 release). From that one
-pack it can make any of three things:
+The patch is applied to your own **Darksoft CPS-3 multi-game pack** (the 2021-01-09 or 2021-04-02 release).
+From that one pack it can make any of three things:
 
 | Output   | What you get                                                                   |
 |----------|--------------------------------------------------------------------------------|
@@ -15,6 +15,9 @@ pack it can make any of three things:
 
 No ROM data is included in this repository or its releases. You need the Darksoft pack, and for the MAME and
 MiSTer outputs one MAME set of your own (see [What you need](#what-you-need)).
+
+The easiest way is the app: download it, double-click it, choose your pack, click **Make files**. It runs on
+Linux and on Windows, including under Wine, and has the instructions built in. See [The app](#the-app).
 
 ## Games
 
@@ -41,13 +44,51 @@ What widescreen does:
 
 ## What you need
 
-- **The Darksoft CPS-3 pack**, `Darksoft CPS-3 2021-01-09.7z` (or the folder you extracted it to: the one that
-  holds `SIMM 1-2` and `SIMM 3-6`).
+- **The Darksoft CPS-3 pack**, `Darksoft CPS-3 2021-01-09.7z` or `Darksoft CPS-3 2021-04-02.7z` (or the folder
+  you extracted it to: the one that holds `SIMM 1-2` and `SIMM 3-6`). See
+  [The two Darksoft releases](#the-two-darksoft-releases) for how they differ.
 - **For the MAME and MiSTer outputs:** your MAME `sfiii3nr1.zip` or `sfiii3n.zip` (3rd Strike, NO CD). Only its
   BIOS chip is used. If you also have `sfiiina`/`sfiiin`, `jojon`/`jojonr1`/`jojonr2` or
   `jojoban`/`jojobanr1`/`jojobanr2`, New Generation and the JoJo games use their own BIOS and their own MAME
   sets instead (see [MAME](#mame)).
-- **Python 3 with numpy, git, and 7-Zip.** Install them:
+- **About 3 GB of free disk space** for all three outputs (less for one).
+
+## The app
+
+Download from the [latest release](https://github.com/djanice1980/CPS3-widescreen/releases/latest):
+
+| Your system | File |
+|---|---|
+| Linux (64-bit PC: Ubuntu 20.04, Debian 11, Fedora, Arch and newer) | `CPS3-Widescreen-linux-x86_64` |
+| Windows 10 or 11 (64-bit), or Wine on Linux | `CPS3-Widescreen-windows-x64.exe` |
+
+Nothing to install: each is a single file.
+
+**Linux:** downloaded files are not allowed to run until you say so. In your file manager, right-click the file,
+choose Properties, and on the Permissions tab tick "Allow executing file as program" (KDE: "Is executable"). Then
+double-click it. (In a terminal: `chmod +x CPS3-Widescreen-linux-x86_64` and `./CPS3-Widescreen-linux-x86_64`.)
+
+**Windows:** double-click the .exe. The app is not code-signed, so Windows may show "Windows protected your PC":
+click **More info**, then **Run anyway**.
+
+**Wine:** double-click the .exe if your desktop opens .exe files with Wine, or run
+`wine CPS3-Widescreen-windows-x64.exe`. Your Linux files are on drive Z: in its file dialogs.
+
+Then, in the app:
+
+1. **Your Darksoft CPS-3 pack:** choose the .7z you downloaded (or the folder you extracted it to).
+2. **What to make:** tick the Darksoft pack, MAME sets, MiSTer files, or any mix.
+3. **Your MAME ROM folder** (MAME and MiSTer only): the folder that holds `sfiii3nr1.zip` or `sfiii3n.zip`.
+4. **Save to:** an empty folder is best.
+5. Click **Make files**. It takes a few minutes; **Open output folder** shows the results.
+
+The Instructions tab in the app covers flashing, turning widescreen on, MAME and MiSTer, the same as the sections
+below.
+
+## Command line (optional)
+
+The app and `tools/make_pack.sh` do the same work with the same code (`tools/cps3ws.py`). To use the command line
+you need **Python 3 with numpy, git, and 7-Zip**. Install them:
 
   Arch / CachyOS / Manjaro:
   ```bash
@@ -73,7 +114,7 @@ What widescreen does:
 You do not need a compiler: the patches are prebuilt in `patches/`. (To build them yourself, see
 [Building the patches from source](#building-the-patches-from-source).)
 
-## Making the files
+### Running make_pack.sh
 
 Get the code, either with git:
 
@@ -109,8 +150,8 @@ tools/make_pack.sh ~/Downloads/"Darksoft CPS-3 2021-01-09.7z" out --format miste
 
 `--format` takes `darksoft`, `mame`, `mister` (several separated by commas) or `all`; without it you get
 `darksoft`. `--roms` is the folder that holds your MAME zips (it can be given more than once). The run takes a
-couple of minutes and needs about 3 GB of free space for `all` (temporary files go in `build/` inside the
-`CPS3-widescreen` folder).
+couple of minutes and needs about 3 GB of free space for `all` (temporary files go in `.cps3ws-work` inside the
+output folder and are removed at the end).
 
 The tool checks every patched address against the bytes the patch expects and stops if any differ, so a
 different or modified pack is refused. It also checks that the Custom
@@ -138,12 +179,28 @@ Each game gets a SCREEN MODE item (NORMAL / WIDE) in its settings page of the te
 
 The setting is stored in the game's EEPROM settings like any other option, so it survives power-off.
 
+## The two Darksoft releases
+
+Both work, and the tool tells you which one it was given. The 2021-04-02 release differs from 2021-01-09 in two
+places, found by comparing the two packs bank by bank (everything else is byte-identical):
+
+- **Warzard (bank 1):** `SIMM1_Jumper_U9_..._WarzardFIX.bin` changes one instruction, at 060024C0: a call to
+  0600E864 becomes a no-op. That routine writes to 05140000, which is the CPS3's SCSI controller (the WD33C93 in
+  MAME's CPS3 driver), so the call sends a command to the CD-ROM drive. A board running from Darksoft SIMMs has
+  no CD-ROM drive; forum reports from the time call this release's change the Warzard no-CD fix. The widescreen
+  patch does not touch that code and works with either release.
+- **Makoto Fix (bank 6) graphics:** `SIMM 3-6` now has two SIMM 5 files instead of one:
+  `SIMM5_Final_MakotoFIX.bin` (the Makoto Fix graphics, with a fix of its own) and `SIMM5_Final_reTHIRD.bin` (the
+  reTHIRD mod). Both differ from 2021-01-09 only in bank 6, and the bank 6 program is the same for both. You
+  flash one of them. The MAME and MiSTer outputs make both, as "Makoto Fix" and "Makoto Fix (reTHIRD)".
+
 ## Darksoft
 
 Unzip the patched pack and flash it the same way you flash the original Darksoft pack, following Darksoft's
 instructions for your UltraSIMM kit. Use the `Standard SH2` program files on a board with a standard
 (HD6417095) SH2, and the `Custom SH2` files on a board that still uses the original security-cart CPU. Only the
-program SIMM files (`SIMM 1-2`) differ from the original pack; `SIMM 3-6` are copied unchanged.
+program SIMM files (`SIMM 1-2`) differ from the original pack; `SIMM 3-6` are copied unchanged. With the
+2021-04-02 pack, flash one of the two SIMM 5 files, as you would with the original.
 
 ## MAME
 
@@ -191,6 +248,10 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
 - Tested in MAME 0.289: all seven games boot from all three outputs' data, and run in both modes. Not yet
   confirmed on a real CPS3 board or on a MiSTer. Reports are welcome in
   [Issues](https://github.com/djanice1980/CPS3-widescreen/issues).
+- The apps: the Linux app ran end to end (all three outputs from the 2021-04-02 .7z) on Ubuntu 20.04 and opens on
+  Ubuntu 24.04, Fedora 42 and Arch; the Windows app ran end to end under Wine 11.22. Both gave the same files as
+  the command line (the zips hold identical files; only their compression differs slightly). The Windows app has
+  not been run on real Windows yet.
 - The MAME sets made with a game's own BIOS (New Generation, JoJo) follow MAME's own layout for those sets but
   were not run here.
 - Some non-fight screens (continue, game over, results, a few intro scenes) are still drawn at 4:3 width, with
@@ -224,6 +285,24 @@ On top of the requirements above it needs:
   git -C vendor/sfIII-cps3-decomp checkout f9b0553a44bd15bf82b71290f29e3aebf3e33edd
   ```
 - **Your MAME `sfiii3nr1.zip`** in `rom/` (the 3rd Strike build takes its graphics data from it).
+
+## Building the apps
+
+The release files are built from this repository, on Linux, with Docker (Linux app) and Wine (Windows app):
+
+```bash
+app/build_linux.sh
+```
+```bash
+DISPLAY=:0 app/build_windows.sh
+```
+
+`build_linux.sh` builds in a Debian 11 container (so the app runs on glibc 2.31 and newer). `build_windows.sh`
+sets up its own Wine prefix in `build/wine-app` with the official Windows Python 3.12.10 from python.org (MD5
+checked) and PyInstaller, numpy and py7zr from PyPI. Both write to `build/app/`. `app/test_linux.sh` and
+`app/test_windows.sh` run the built apps on a virtual display (Xvfb in a container), fill in the form, make the
+files and save a screenshot, without opening windows on your desktop. To run the app from source instead:
+`python3 app/cps3ws_app.py` (needs python3-tk and numpy, plus py7zr or 7z for .7z packs).
 
 ## How it works (short version)
 

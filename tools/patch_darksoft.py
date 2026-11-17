@@ -81,7 +81,7 @@ def patch_bank(bank, runs, base, form):
             bank[off + 2 * k:off + 2 * k + 2] = n.to_bytes(2, 'big')
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('pack')
     ap.add_argument('patch')
@@ -89,7 +89,7 @@ def main():
     ap.add_argument('out')
     ap.add_argument('--kind', default='both', choices=['Standard', 'Custom', 'both'])
     ap.add_argument('--in-place', action='store_true')
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     patch = json.load(open(a.patch))
     kinds = ['Standard', 'Custom'] if a.kind == 'both' else [a.kind]
     if 'Custom' in kinds and any('code' not in r for r in patch['runs']):

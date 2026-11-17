@@ -23,8 +23,9 @@ BASE = 0x06000000
 SUM_FIX = [0x067FEE06, 0x06FFEE06]  # the halfwords holding the sum bytes
 
 
-def main():
-    pack, patched, bank, code_path = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    pack, patched, bank, code_path = argv[0], argv[1], int(argv[2]), argv[3]
     ld = lambda p, k: np.frombuffer(read_program_bank(os.path.join(p, 'SIMM 1-2'), bank, k), dtype='>u2')
     os_, oc = ld(pack, 'Standard'), ld(pack, 'Custom')
     ps, pc = ld(patched, 'Standard'), ld(patched, 'Custom')
