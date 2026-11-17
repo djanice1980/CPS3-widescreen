@@ -1,8 +1,10 @@
 # CPS3 Widescreen
 
 Widescreen (495 x 224) for seven Capcom CPS3 games, switched on and off from each game's own service menu with a
-new SCREEN MODE setting. With the setting on NORMAL the games draw the same picture as before (checked frame by
-frame in MAME against the unpatched games for the four Street Fighter III games and Warzard).
+new SCREEN MODE setting. With the setting on NORMAL the Street Fighter III and JoJo games draw the same picture
+as before (checked frame by frame in MAME against the unpatched games; 3rd Strike and both JoJo games also through
+scripted fights). Warzard on NORMAL matches in attract mode but not frame for frame during play: see
+[Status and known issues](#status-and-known-issues).
 
 The patch is applied to your own **Darksoft CPS-3 multi-game pack** (the 2021-01-09 or 2021-04-02 release).
 From that one pack it can make any of three things:
@@ -268,6 +270,20 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
   match, the right end of the 2P HUD stays for a few frames.
 - New Generation, English GAME CONFIGURATION page (both modes): two stray tiles appear in the top-left corner of
   the page.
+- **JoJo's Venture and JoJo HFTF on a real Darksoft board (both modes, not yet fixed):** the patch keeps its own
+  variables at RAM 0207F000-0207F00F, and the Darksoft versions of the games read their region byte (0207F000) and
+  no-CD flag (0207F004) from there at boot. The patch clears the no-CD flag before the game tests it, so the game
+  runs the CD-ROM drive scan that the flag exists to skip, and the "( N C D )" line is missing from the boot
+  title. Whether that only delays the boot or hangs it on a board without a drive is not known. MAME does not
+  show this, because its BIOS leaves both bytes at 0. Until this is fixed, treat the patched JoJo banks as
+  untested on hardware.
+- Warzard (both modes): all text is drawn through a copy in RAM that reaches the screen once per frame.
+  - The test menu's memory check shows no progress for 25 to 50 seconds and then every result at once.
+  - Its SS RAM row tests that copy instead of the real text RAM, so it cannot report bad text RAM.
+  - The copy takes CPU time every frame, so on NORMAL the game is not frame-for-frame identical to the unpatched
+    one during play (the same scripted inputs lead to different fights in MAME). No slowdown was seen.
+- JoJo games in WIDE: the last rows of the test menu's memory check never appear ("FLASH SIMM6 CHECKING..." stays
+  on screen).
 - At the edges of the wider view, some stage objects can appear a moment late.
 
 ## Building the patches from source
