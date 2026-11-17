@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Build the widescreen patch of Warzard (Darksoft bank 1, Standard SH2 program, plain):
 
-    build_warzard.py <bank 1 program (16 MB)> <out dir>
+    build_warzard.py <bank 1 program (16 MB)> <out dir> [<bank 1 Custom SH2 program>]
+
+With the Custom SH2 program (the same bank from the pack's Custom SH2 files) the copies of the game's code take
+their instruction ranges from what Darksoft stored encrypted, and not only from this tool's flow analysis.
 
 No source exists for Warzard, so the patch is built from addresses found in its program (below; found with MAME
 taps and traces). src/warzard/wide.c is the module, its game addresses in a game.h written here (the compile and
@@ -9,10 +12,17 @@ link steps are tools/build_jojoba.py's). Steps:
 
  1. compile src/warzard/wide.c (SHC) and link it alone at MODULE: SIMM 2's address range, which Warzard (an 8 MB
     program) never reads (the BIOS reads only 06800000-06800007 at boot: checked in MAME);
- 2. point every code literal that addresses the text tile map (25040000-25043FFF, the wrap bound 25043FFF too),
-    and the one pointer table in data ROM that does, at the RAM shadow, in both modes (the module copies the shadow to text RAM once the frame's text is drawn);
- 3. point the call literals at the module's wrappers (the fight camera step, the vertical blank's two scroll register
-    writers, set screen mode); the task scheduler's end-of-pass step calls the module's frame step first;
+ 2. the text code (tools/wz_blocks.py finds it: every routine that loads a text tile map address, 25040000-
+    25043FFF, or the one data table of such addresses): two verbatim copies in SIMM 2, A as it is and B with
+    those addresses pointing at the module's RAM shadow, and at each way into that code a jump to a dispatcher
+    that runs copy A in 4:3 and copy B in wide mode. Jumps, dispatchers and the relays for the copies' calls
+    change no register and no flag. So in 4:3 the game runs its own instructions on the real text RAM, with
+    nothing added to a frame but the dispatch of each text call (it is frame-identical to the unpatched game
+    in MAME where the earlier design, a shadow in both modes copied every frame, was not);
+ 3. point the call literals at the module's wrappers (the fight camera step, the vertical blank's two scroll
+    register writers, set screen mode); in wide mode the second of those also puts the shadow on the screen.
+    The memory check's prints go through stubs that do the same after each line (no vertical blank is served
+    while a check runs);
  4. (the window table's screen mode 7 row is already 3rd Strike's 496-pixel timing: checked, not changed);
  5. write <out>/warzard-wide-prog.bin, <out>/warzard-code.json (instruction ranges, for Custom carts) and
     <out>/warzard-wide.json (the patch, tools/make_patch.py).
@@ -26,13 +36,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 from build_jojoba import compile_and_link, module_code, merge, run, WINDOW_ROW7_3S  # noqa: E402
 from hook import trampoline  # noqa: E402
+import wz_blocks  # noqa: E402
 
 BASE = 0x06000000
 SIZE = 0x01000000
 MODULE = 0x06F00000         # PWIDE
 MODULE_CONST = 0x06F03000   # CWIDE
 STUBS = 0x06F04000
-FREE = (0x06F00000, 0x06F10000)  # SIMM 2, never read by Warzard
+FREE = (0x06F00000, 0x06F40000)  # SIMM 2, never read by Warzard
+COPIES_A = 0x06F10000       # the text code's copies: A as the game has it (4:3), B drawing into the shadow
+COPIES_B = 0x06F20000
+DISPATCH = 0x06F30000       # one dispatcher per entry into the text code
+TABLE_B = 0x06F05400        # TEXT_TABLE with shadow addresses, for copy B
+TEXT_SEL_OFFSET = 12        # in the module's RAM (VARS): 0 = run copy A, 4 = run copy B (src/warzard/wide.c)
 CODE = (0x06000000, 0x06140000)  # the program's code (literal scan range)
 
 SHADOW = 0x02040000  # 16 KB of RAM no code addresses and nothing writes (MAME: attract + play)
@@ -50,7 +66,6 @@ G = dict(
                 SCREEN_X=0x02051BC0,    # global x offset in every layer and sprite scroll
                 STAGE=0x020606E7,       # stage number (camera limits index)
                 CAM_LIMITS=0x066F3E74,  # per stage: s16 camera x min, max (10 stages)
-                SCHED_PASS=0x0205192C,  # task scheduler pass counter
                 CAMERA=0x0611B208,      # fight camera step
                 SCROLL=0x060055FC,      # vertical blank: layer and sprite scroll registers
                 SET_MODE=0x06004484,
@@ -100,48 +115,7 @@ POINTERS = {
     0x0671DA58: (0x0601D0F8, '_wide_en_draw'), 0x0671DA5C: (0x0601D2EC, '_wide_en_step'),
     0x0671D9C8: (0x0601C6B2, '_wide_jp_draw'), 0x0671D9CC: (0x0601C884, '_wide_jp_step'),
 }
-# the task scheduler's end of a pass over its 24 tasks (r13 == 24): 06001978-06001983 become a jump to the stub
-SCHED_HOOK = 0x06001978
-SCHED_HOOK_CODE = bytes.fromhex('D21D 6221 2821 60B0 8803 8D08'.replace(' ', ''))
-SCHED_LIT = 0x060019F0      # its mov.l's literal (a register address, 240C0006)
-SCHED_T = 0x06001996        # the bt/s target (its slot, mov r14,r13, runs on both paths)
-SCHED_F = 0x06001986        # after the slot
 WINDOW_ROW7 = 0x06690D0C + 7 * 18
-
-
-def sched_stub(at, frame_step, lit_value):
-    """Call frame_step, then the replaced code: r2 = *(u16 *)lit; *(u16 *)r8 = r2; r0 = *(u8 *)r11; r13 = r14;
-    to SCHED_T if r0 == 3, else SCHED_F."""
-    assert at % 4 == 0
-    code = [
-        0xD100,  # mov.l @(frame),r1
-        0x410B,  # jsr @r1
-        0x0009,  # nop
-        0xD200,  # mov.l @(lit),r2
-        0x6221,  # mov.w @r2,r2
-        0x2821,  # mov.w r2,@r8
-        0x60B0,  # mov.b @r11,r0
-        0x6DE3,  # mov r14,r13
-        0x8803,  # cmp/eq #3,r0
-        0x8B02,  # bf +2 (to the F jump)
-        0xD100,  # mov.l @(t),r1
-        0x412B,  # jmp @r1
-        0x0009,  # nop
-        0xD100,  # mov.l @(f),r1
-        0x412B,  # jmp @r1
-        0x0009,  # nop
-    ]
-    pool = at + 2 * len(code)
-    assert pool % 4 == 0
-    lits = [frame_step, lit_value, SCHED_T, SCHED_F]
-    for i, li in ((0, 0), (3, 1), (10, 2), (13, 3)):
-        pc = at + 2 * i
-        d = (pool + 4 * li - ((pc & ~3) + 4)) // 4
-        assert 0 <= d < 256 and (pool + 4 * li - ((pc & ~3) + 4)) % 4 == 0
-        code[i] |= d
-    # bf at index 9 -> index 13: disp = (13*2 - (9*2 + 4)) / 2 = 2
-    blob = b''.join(struct.pack('>H', c) for c in code) + b''.join(struct.pack('>I', v) for v in lits)
-    return blob, [(at, 2 * len(code))]
 
 
 def wa_glyph(stock):
@@ -251,29 +225,128 @@ def apply_body(at):
 HARDWARE_LITERALS = {0x0600DBBC: (0x25040000, (0x0600DB34, 0x0600DBBC))}
 
 
-def text_literals(stock):
-    """Literal pool words that code loads (mov.l) and that hold a text tile map address: {literal addr: value}.
-    HARDWARE_LITERALS are left out, after checking that only their own routine loads them."""
-    h = lambda a: struct.unpack_from('>H', stock, a - BASE)[0]
-    out = {}
-    for a in range(CODE[0], CODE[1], 2):
-        op = h(a)
-        if op >> 12 == 0xD:
-            lit = (a & ~3) + 4 + 4 * (op & 0xFF)
-            v = struct.unpack_from('>I', stock, lit - BASE)[0]
-            if lit in HARDWARE_LITERALS:
-                want, (lo, hi) = HARDWARE_LITERALS[lit]
-                assert v == want and lo <= a < hi, f'{a:08X} loads the hardware literal {lit:08X}'
-            elif TEXT_MAP[0] <= v < TEXT_MAP[1]:
-                out[lit] = v
-    return out
+# The test menu's memory check (0600E428: nine checks, back to back, in one task step) prints "CHECKING..." and
+# each result with these two routines and never lets the scheduler run, so with text drawn through the shadow
+# nothing reached the screen until every check was done. Inside the memory check's code (and only there) the
+# literals that hold the two routines' addresses point at stubs that call the routine, then the module's flush.
+MEM_CHECK = (0x0600D6C0, 0x0600E428)
+MEM_PRINTS = {0x06005D5C: 12, 0x06005F1C: 7}   # routine: literals in MEM_CHECK holding its address
+MEM_STUBS = 0x06F04100
+PR_SAVE_OFFSET = 8                              # in the module's RAM (G_VARS): the caller's return address
+
+
+def print_flush_stub(at, orig, flush, save):
+    """orig(...) with the caller's registers and stack arguments as they are, then flush(); returns orig's r0."""
+    assert at % 4 == 0
+    code = [
+        0xD100,  # mov.l @(save),r1
+        0x002A,  # sts pr,r0
+        0x2102,  # mov.l r0,@r1
+        0xD000,  # mov.l @(orig),r0
+        0x400B,  # jsr @r0
+        0x0009,  # nop
+        0x2F06,  # mov.l r0,@-r15
+        0xD000,  # mov.l @(flush),r0
+        0x400B,  # jsr @r0
+        0x0009,  # nop
+        0x60F6,  # mov.l @r15+,r0
+        0xD100,  # mov.l @(save),r1
+        0x6112,  # mov.l @r1,r1
+        0x412A,  # lds r1,pr
+        0x000B,  # rts
+        0x0009,  # nop
+    ]
+    pool = at + 2 * len(code)
+    for i, li in ((0, 0), (3, 1), (7, 2), (11, 0)):
+        pc = at + 2 * i
+        d = (pool + 4 * li - ((pc & ~3) + 4)) // 4
+        assert 0 <= d < 256
+        code[i] |= d
+    blob = b''.join(struct.pack('>H', c) for c in code) + struct.pack('>III', save, orig, flush)
+    return blob, [(at, 2 * len(code))]
+
+
+def safe_jump(at, target):
+    """A jump to target that changes no register and no flag: r0 goes on the stack and comes back in the jump's
+    delay slot. 12 bytes at a 4-aligned address, 14 otherwise (the literal has to be 4-aligned)."""
+    code = bytes.fromhex('2F06 D001 402B 60F6'.replace(' ', ''))  # mov.l r0,@-r15 / mov.l @(lit),r0 / jmp @r0 / mov.l @r15+,r0
+    if at % 4 == 2:
+        code += b'\x00\x09'
+    # mov.l @(1,pc) at at+2: ((at + 2) & ~3) + 4 + 4
+    assert ((at + 2) & ~3) + 8 == at + len(code), hex(at)
+    return code + struct.pack('>I', target)
+
+
+def dispatcher(at, sel, copy_a, copy_b):
+    """Jump to copy_a or copy_b by the word at sel (0 or 4), every register and flag as the caller left them."""
+    assert at % 4 == 0
+    code = [
+        0x2F06,  # mov.l r0,@-r15
+        0x2F16,  # mov.l r1,@-r15
+        0xD103,  # mov.l @(sel),r1      (at + 20)
+        0x6112,  # mov.l @r1,r1         0 or 4
+        0xC703,  # mova pair,r0         (at + 24)
+        0x001E,  # mov.l @(r0,r1),r0
+        0x61F6,  # mov.l @r15+,r1
+        0x402B,  # jmp @r0
+        0x60F6,  # mov.l @r15+,r0
+        0x0009,  # pad
+    ]
+    blob = b''.join(struct.pack('>H', c) for c in code) + struct.pack('>III', sel, copy_a, copy_b)
+    return blob, [(at, 18)]
+
+
+def copy_block(stock, b, at, shadow, relay_at, custom):
+    """One block at `at`. shadow: draw into the RAM shadow (copy B) instead of text RAM. Returns (bytes, relay
+    bytes, code ranges). The copy is verbatim but for: calls (bsr) out of the block, which go through relays placed
+    at relay_at (after the copy); pointers into the block, which follow the copy; and for copy B the text tile
+    map addresses and the pointer to TEXT_TABLE."""
+    lo, hi = b['lo'], b['hi']
+    data = bytearray(stock[lo - BASE:hi - BASE])
+    delta = at - lo
+    assert at % 4 == 0 and relay_at % 4 == 0 and relay_at >= at + len(data)
+    relays, ranges = bytearray(), []
+    relay_of = {}
+    for site, target in b['relays']:
+        if target not in relay_of:
+            relay_of[target] = relay_at + len(relays)
+            ranges.append((relay_at + len(relays), 8))
+            relays += safe_jump(relay_at + len(relays), target)
+        d = relay_of[target] - (site + delta) - 4
+        assert d % 2 == 0 and -4096 <= d <= 4094, f'relay out of reach from {site:08X}'
+        struct.pack_into('>H', data, site - lo, 0xB000 | (d // 2 & 0xFFF))
+    for w in b['self_pointers']:
+        struct.pack_into('>I', data, w - lo, struct.unpack_from('>I', data, w - lo)[0] + delta)
+    if shadow:
+        for w in range(lo, hi, 4):
+            v = struct.unpack_from('>I', stock, w - BASE)[0]
+            if TEXT_MAP[0] <= v < TEXT_MAP[1] and w not in wz_blocks.HARDWARE_LITERALS:
+                struct.pack_into('>I', data, w - lo, SHADOW + v - TEXT_MAP[0])
+            elif v == TEXT_TABLE[0] and w not in b['code'] and (w + 2) not in b['code']:
+                struct.pack_into('>I', data, w - lo, TABLE_B)
+    # which halfwords are instructions: what the flow analysis reached and, with the Custom SH2 image at hand,
+    # what Darksoft stored encrypted there (its own judgement of what is code, which the copy should share)
+    is_code = set(a for a in b['code'] if lo <= a < hi)
+    if custom:
+        for a in range(lo, hi, 2):
+            if custom[a - BASE:a - BASE + 2] != stock[a - BASE:a - BASE + 2]:
+                is_code.add(a)
+    run = None
+    for a in range(lo, hi + 2, 2):
+        if a in is_code and a < hi:
+            run = a if run is None else run
+        elif run is not None:
+            ranges.append((run + delta, a - run))
+            run = None
+    return bytes(data), bytes(relays), ranges
 
 
 def main():
     prog_path, out_dir = sys.argv[1], sys.argv[2]
+    custom = open(sys.argv[3], 'rb').read() if len(sys.argv) > 3 else None   # the bank's Custom SH2 program
     os.makedirs(out_dir, exist_ok=True)
     stock = open(prog_path, 'rb').read()
-    assert len(stock) == SIZE
+    assert len(stock) == SIZE and (custom is None or len(custom) == SIZE)
     img = bytearray(stock)
     l = lambda a: struct.unpack_from('>I', stock, a - BASE)[0]
     code_ranges = []
@@ -292,28 +365,93 @@ def main():
     print('module ' + ', '.join(f'{lo:08X}-{hi:08X}' for lo, hi in spans))
     code_ranges.extend(module_code(os.path.join(out_dir, 'wide.lis'), img, MODULE))
 
-    # 2. text tile map literals -> the shadow
-    lits = text_literals(stock)
+    # 2. the text code: two copies of every block that draws into the tile map, and a dispatcher at each entry.
+    #    The game's own code is not changed but for the jumps at those entries, so in 4:3 it runs the stock
+    #    instructions (copy A) on the real text RAM: no shadow, no copy, nothing added to a frame but the
+    #    dispatch of a text call. Copy B draws into the shadow, which the module puts on the screen in wide mode.
+    blocks, loaders, orphans = wz_blocks.analyze(stock)
+    assert not orphans, orphans
+    table = bytearray()
     a, n = TEXT_TABLE
     for i in range(n):
         assert TEXT_MAP[0] <= l(a + 4 * i) < TEXT_MAP[1]
-        lits[a + 4 * i] = l(a + 4 * i)
-    for lit, v in sorted(lits.items()):
-        struct.pack_into('>I', img, lit - BASE, SHADOW + v - TEXT_MAP[0])
-    print(f'{len(lits)} text tile map literals and pointers moved to the shadow')
+        table += struct.pack('>I', SHADOW + l(a + 4 * i) - TEXT_MAP[0])
+    put(TABLE_B, bytes(table))
+    table_users = [BASE + i for i in range(0, SIZE, 4) if struct.unpack_from('>I', stock, i)[0] == TEXT_TABLE[0]]
+    assert table_users and all(any(blk['lo'] <= w < blk['hi'] for blk in blocks) for w in table_users), table_users
+    at_a, at_b, d_at = COPIES_A, COPIES_B, DISPATCH
+    n_entries = n_relays = 0
+    jumps = []   # (address, length) of the jumps written over entries
+    for blk in blocks:
+        assert not blk['leaving'] and not blk['data_out'], hex(blk['lo'])
+        size = blk['hi'] - blk['lo']
+        copies = {}
+        for name, base, shadow in (('a', at_a, False), ('b', at_b, True)):
+            data, relays, cr = copy_block(stock, blk, base, shadow, base + size, custom)
+            put(base, data + relays)
+            code_ranges.extend(cr)
+            copies[name] = base - blk['lo']
+        step = (size + 12 * len(blk['relays']) + 15) // 16 * 16
+        at_a += step
+        at_b += step
+        n_relays += len(blk['relays'])
+        for e in blk['entries']:
+            blob, cr = dispatcher(d_at, VARS + TEXT_SEL_OFFSET, e + copies['a'], e + copies['b'])
+            put(d_at, blob)
+            code_ranges.extend(cr)
+            t = safe_jump(e, d_at)
+            # the jump may only cover code that runs nowhere but in the copies from now on
+            assert blk['lo'] <= e and e + len(t) <= blk['hi'], hex(e)
+            assert not any(x in blk['live'] for x in range(e, e + len(t))), f'{e:08X}: the jump would cover live code'
+            assert not any(lo < e + len(t) and e < lo + ln for lo, ln in jumps), f'{e:08X}: jumps overlap'
+            img[e - BASE:e - BASE + len(t)] = t
+            jumps.append((e, len(t)))
+            code_ranges.append((e, 8))
+            d_at += 32
+            n_entries += 1
+    assert at_a <= COPIES_B and at_b <= DISPATCH and d_at <= FREE[1]
+    if os.environ.get('WZ_TRIPWIRE'):
+        # test build only: every instruction of the blocks that should never run again (all but the jumps and
+        # the routines without a dispatcher) becomes "bra self". A missed entry then hangs the game instead of
+        # quietly running the old code, so a test run that matches the unpatched game proves there was none.
+        n_trip = 0
+        for blk in blocks:
+            for x in sorted(blk['code']):
+                if blk['lo'] <= x < blk['hi'] and x not in blk['live'] and \
+                        not any(lo <= x < lo + ln for lo, ln in jumps):
+                    struct.pack_into('>H', img, x - BASE, 0xAFFE)
+                    n_trip += 1
+        print(f'TRIPWIRE build: {n_trip} dead instructions replaced by a halt. NOT for release.')
+    print(f'text code: {len(blocks)} blocks ({at_a - COPIES_A} bytes a copy), {n_entries} entries, {n_relays} relays, '
+          f'{len(loaders)} loads of a text address' + ('' if custom else '; NO Custom SH2 image: code ranges from flow only'))
 
-    # 3. wrappers and the scheduler hook
+    # 3. wrappers (the scheduler is not hooked: the shadow goes to the screen from the vertical blank's wrapper)
     for lit, (old, sym) in POINTERS.items():
         assert l(lit) == old, (hex(lit), hex(l(lit)))
         struct.pack_into('>I', img, lit - BASE, syms[sym])
-    assert stock[SCHED_HOOK - BASE:SCHED_HOOK - BASE + len(SCHED_HOOK_CODE)] == SCHED_HOOK_CODE
-    blob, cr = sched_stub(STUBS, syms['_wide_text_frame'], l(SCHED_LIT))
-    put(STUBS, blob)
-    code_ranges.extend(cr)
-    t = trampoline(SCHED_HOOK, STUBS)
-    assert len(t) == len(SCHED_HOOK_CODE)
-    img[SCHED_HOOK - BASE:SCHED_HOOK - BASE + len(t)] = t
-    code_ranges.append((SCHED_HOOK, 8))
+
+    # the memory check's prints go through stubs that flush the shadow to the screen
+    h16 = lambda a: struct.unpack_from('>H', stock, a - BASE)[0]
+    at = MEM_STUBS
+    for orig, count in MEM_PRINTS.items():
+        blob, cr = print_flush_stub(at, orig, syms['_wide_text_flush'], VARS + PR_SAVE_OFFSET)
+        put(at, blob)
+        code_ranges.extend(cr)
+        found = 0
+        for a in range(MEM_CHECK[0], MEM_CHECK[1], 2):
+            if h16(a) >> 12 == 0xD:
+                lit = (a & ~3) + 4 + 4 * (h16(a) & 0xFF)
+                if l(lit) == orig and struct.unpack_from('>I', img, lit - BASE)[0] == orig:
+                    struct.pack_into('>I', img, lit - BASE, at)
+                    found += 1
+        assert found == count, (hex(orig), found)
+        # ... and nothing outside the memory check loads one of those literals
+        for a in range(CODE[0], CODE[1], 2):
+            if h16(a) >> 12 == 0xD and not (MEM_CHECK[0] <= a < MEM_CHECK[1]):
+                lit = (a & ~3) + 4 + 4 * (h16(a) & 0xFF)
+                assert not (l(lit) == orig and struct.unpack_from('>I', img, lit - BASE)[0] == at), hex(a)
+        at += (len(blob) + 15) // 16 * 16
+    print(f'memory check: {sum(MEM_PRINTS.values())} print calls flush the text shadow')
 
     # the SCREEN MODE item: menu data, label lists, cursor wraps, the EEPROM image apply hook
     data, en_list, jp_page = menu_data(stock)

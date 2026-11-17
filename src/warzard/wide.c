@@ -6,10 +6,11 @@
  * 3rd Strike timing, which Warzard's window table already has) the 384-pixel picture is shown in the middle of the
  * wider screen:
  *
- *  - the text layer (the whole fight HUD, menus, messages): every code literal that addresses the text tile map
- *    (25040000-25043FFF) points at a RAM shadow instead, in both modes; at the end of the task scheduler's first
- *    two passes in a frame (all text is drawn by then) the shadow is copied to text RAM: as it is in 4:3, 7 tiles
- *    (56 px) further right in wide mode, the margins filled with the tile the game cleared the row with;
+ *  - the text layer (the whole fight HUD, menus, messages): in wide mode the game's text code runs from a copy
+ *    that draws into a RAM shadow of the tile map (tools/build_warzard.py makes the copies and the dispatchers
+ *    that pick them); once a frame, in the vertical blank, the shadow goes to text RAM 7 tiles (56 px) further
+ *    right, the margins filled with the tile the game cleared the row with. In 4:3 the game's own text code
+ *    runs on the real text RAM and none of this does;
  *  - sprites and background layers move together through the game's own global X offset (02051BC0, added to
  *    every layer's scroll and sprite scroll), changed only while the vertical blank routines write the scroll
  *    registers, so the game never sees it: +56 outside fights; in a fight the view follows the camera but stops
@@ -37,6 +38,10 @@ typedef unsigned long u32;
 #define WIDE_ON     (*(volatile u8*)(G_VARS + 0))   /* wide mode in effect */
 #define CAM_LIVE    (*(volatile u8*)(G_VARS + 1))   /* vertical blanks the fight camera counts as running */
 #define SHIFT_NOW   (*(volatile s16*)(G_VARS + 4))  /* the world shift used this frame (for tests) */
+/* G_VARS + 8: the return address the memory check's print stubs keep (tools/build_warzard.py, PR_SAVE_OFFSET) */
+#define TEXT_SEL    (*(volatile u32*)(G_VARS + 12)) /* which copy of the text code the dispatchers run: 0 = A,
+                                                      the game's own on the real text RAM; 4 = B, into the
+                                                      shadow (tools/build_warzard.py, TEXT_SEL_OFFSET) */
 
 /* the game's */
 #define LAYER0_X    (*(volatile s16*)G_LAYER0_X)   /* main layer x being published this frame (the camera) */
@@ -44,7 +49,6 @@ typedef unsigned long u32;
 #define STAGE       (*(volatile u8*)G_STAGE)
 #define CAM_LIMITS  ((const s16*)G_CAM_LIMITS)     /* per stage: camera x min, max */
 #define STAGES      10
-#define SCHED_PASS  (*(volatile s32*)G_SCHED_PASS) /* task scheduler: passes over the tasks this frame (0 = first) */
 
 #define TEXT_MAP    0x25040000                     /* text RAM tile map: 64 rows of 64 tiles, 4 bytes each */
 #define SHADOW      G_SHADOW                       /* its RAM shadow, which the game draws into */
@@ -57,6 +61,7 @@ typedef unsigned long u32;
 #define HALF        56                             /* (496 - 384) / 2 */
 
 typedef s32 (*method)(s32, s32, s32, s32);
+static void text_copy(void);
 #define ORIG_CAMERA ((method)G_CAMERA)
 #define ORIG_SCROLL ((method)G_SCROLL)
 #define ORIG_SET_MODE ((method)G_SET_MODE)
@@ -121,6 +126,9 @@ s32 wide_scroll(s32 a, s32 b, s32 c, s32 d) {
     SCREEN_X -= s;
     r = ORIG_SCROLL(a, b, c, d);
     SCREEN_X += s;
+    if (WIDE_ON) {
+        text_copy(); /* once a frame, in the vertical blank: what the frame's tasks drew goes on the screen */
+    }
     return r;
 }
 
@@ -257,7 +265,30 @@ s32 wide_ee_apply(s32 img, s32 b, s32 c, s32 d) {
     s32 r = ((method)G_APPLY_BODY)(img, b, c, d);
     s32 on = LIVE_WIDE & 1;
     if (on != WIDE_ON) {
+        volatile u32 *text = (volatile u32 *)TEXT_MAP;
+        u32 *shadow = (u32 *)SHADOW;
+        s32 row, k;
+        if (on) {
+            /* what is on the screen now was drawn straight into text RAM: it becomes the shadow's content */
+            for (k = 0; k < MAP_ROWS * 64; k++) {
+                shadow[k] = text[k];
+            }
+        } else {
+            /* back to 4:3: the shadow's 48 columns where the game draws them, the rest the row's clear tile */
+            for (row = 0; row < MAP_ROWS; row++) {
+                u32 fill = shadow[FILL_COL];
+                for (k = 0; k < VIS_COLS; k++) {
+                    text[k] = shadow[k];
+                }
+                for (; k < 64; k++) {
+                    text[k] = fill;
+                }
+                shadow += 64;
+                text += 64;
+            }
+        }
         WIDE_ON = on;
+        TEXT_SEL = on ? 4 : 0;
         if (CUR_MODE == 3 || CUR_MODE == 7) {
             wide_set_screen_mode(3, 0, 0, 0);
         }
@@ -266,46 +297,14 @@ s32 wide_ee_apply(s32 img, s32 b, s32 c, s32 d) {
 }
 
 /*
- * At the end of the task scheduler's first and second pass in a frame: the shadow to text RAM, both pages.
- * 4:3: as it is. Wide: each row's first 48 tiles 7 tiles right, the rest the row's clear tile (Warzard never
- * scrolls the text layer sideways).
+ * Wide mode only: the shadow to text RAM, both pages. Each row's first 48 tiles go 7 tiles right, the rest is the
+ * row's clear tile (Warzard never scrolls the text layer sideways). In 4:3 there is no shadow: the dispatchers of
+ * tools/build_warzard.py run the game's own text code on the real text RAM, and nothing here runs.
  */
-void wide_text_frame(void) {
-    const u32 *src;
-    volatile u32 *dst;
+static void text_copy(void) {
+    const u32 *src = (const u32 *)SHADOW;
+    volatile u32 *dst = (volatile u32 *)TEXT_MAP;
     s32 row, k;
-    if (SCHED_PASS > 1) {
-        return;
-    }
-    src = (const u32 *)SHADOW;
-    dst = (volatile u32 *)TEXT_MAP;
-    if (!WIDE_ON) {
-        /* 4:3 shows columns 0..47 only. This runs twice a frame in the game's own mode and its time is not
-           free: the scheduler idles through about 350 passes a frame, and a few effects advance with those
-           passes, so the frames around some transitions differ from the unpatched game by as much as this
-           takes (measured in MAME: the unpatched text path plus only this copy's time gives exactly the
-           patched frames). So: the fewest instructions, 48 loads and stores a row, no index arithmetic
-           (about 9,000 a call; it was 27,000 with all 64 columns and indexed access). */
-        const u32 *s = src;
-        u32 *d = (u32 *)TEXT_MAP;
-        for (row = MAP_ROWS; row != 0; row--) {
-            for (k = VIS_COLS / 8; k != 0; k--) {
-                d[0] = s[0];
-                d[1] = s[1];
-                d[2] = s[2];
-                d[3] = s[3];
-                d[4] = s[4];
-                d[5] = s[5];
-                d[6] = s[6];
-                d[7] = s[7];
-                s += 8;
-                d += 8;
-            }
-            s += 64 - VIS_COLS;
-            d += 64 - VIS_COLS;
-        }
-        return;
-    }
     for (row = 0; row < MAP_ROWS; row++) {
         u32 fill = src[FILL_COL];
         for (k = 0; k < SHIFT_TILES; k++) {
@@ -319,5 +318,14 @@ void wide_text_frame(void) {
         }
         src += 64;
         dst += 64;
+    }
+}
+
+/* after a print of the test menu memory check (tools/build_warzard.py, MEM_PRINTS): no vertical blank is
+   served while a check runs with interrupts masked, so in wide mode each line is put on the screen as it is
+   printed. In 4:3 the print went straight to text RAM. */
+void wide_text_flush(void) {
+    if (WIDE_ON) {
+        text_copy();
     }
 }

@@ -2,9 +2,8 @@
 
 Widescreen (495 x 224) for seven Capcom CPS3 games, switched on and off from each game's own service menu with a
 new SCREEN MODE setting. With the setting on NORMAL the Street Fighter III and JoJo games draw the same picture
-as before (checked frame by frame in MAME against the unpatched games; 3rd Strike and both JoJo games also through
-scripted fights). Warzard on NORMAL matches in attract mode but not frame for frame during play: see
-[Status and known issues](#status-and-known-issues).
+as before, and so does Warzard since v1.3.0 (checked frame by frame in MAME against the unpatched games, through
+scripted fights too).
 
 The patch is applied to your own **Darksoft CPS-3 multi-game pack** (the 2021-01-09 or 2021-04-02 release).
 From that one pack it can make any of three things:
@@ -272,15 +271,12 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
   game ran the CD-ROM drive scan the flag exists to skip. Fixed in v1.2.0: the variables moved to 0207C000, and
   with the two bytes set as a Darksoft board has them the patched boot is identical to the unpatched one in
   MAME. It is still not confirmed on hardware.
-- Warzard (both modes): all text is drawn through a copy in RAM that reaches the screen once per frame.
-  - The test menu's memory check shows no progress for 25 to 50 seconds and then every result at once.
-  - The copy takes CPU time every frame. The game has plenty to spare (its scheduler still idles through about
-    330 of its usual 350 passes a frame; no slowdown), but a few effects advance with those passes, so on NORMAL
-    some frames differ from the unpatched game (measured: 57 of 121 frames around one scene transition) and, as
-    the game's random numbers follow, the same scripted inputs lead to different fights. This cannot be brought
-    to zero with this design; v1.2.0 cut the copy to a third.
-- JoJo games in WIDE: the last rows of the test menu's memory check never appear ("FLASH SIMM6 CHECKING..." stays
-  on screen).
+- Warzard on NORMAL: up to v1.2.x all text went through a copy in RAM in both modes, which cost CPU time every
+  frame; a few effects are timed by the game's idle loop, so some frames differed from the unpatched game and
+  scripted fights played out differently. Since v1.3.0 the game's own text code runs untouched on NORMAL and
+  only WIDE uses the copy. In MAME the patched game is now identical to the unpatched one on every sampled
+  frame of a 9,000-frame scripted run that differed before (and its scheduler averages the same passes per
+  frame, 338.3 against 338.4).
 - At the edges of the wider view, some stage objects can appear a moment late.
 
 ## Building the patches from source
@@ -338,9 +334,10 @@ files and save a screenshot, without opening windows on your desktop. `PICK=zeni
   own programs.
 - **New Generation:** it keeps its complete original wide mode; the patch adds the SCREEN MODE menu item.
 - **JoJo's Venture, JoJo's Bizarre Adventure, Warzard:** these have no wide mode at all. The patch widens the
-  display, shifts the camera, sprites and backgrounds, and draws the whole text layer into RAM so it can be
-  centered on the wider screen. The code was written against the games' machine code directly (there is no
-  decompilation of these games).
+  display, shifts the camera, sprites and backgrounds, and in wide mode draws the whole text layer into RAM so
+  it can be centered on the wider screen: the games' text routines exist twice, as they are and drawing into
+  RAM, and a small dispatcher at each entry picks one by the screen mode. The code was written against the
+  games' machine code directly (there is no decompilation of these games).
 - **Darksoft Custom SH2 files:** new instructions are stored encrypted the way Darksoft stores the rest of each
   bank, and the checksum byte of each SIMM is kept unchanged so the board's memory test still passes.
 

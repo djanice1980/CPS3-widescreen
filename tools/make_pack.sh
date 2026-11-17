@@ -61,7 +61,8 @@ if [ -n "$BUILD" ]; then
     mkdir -p "$B/banks"
     python3 -c "import sys; sys.path.insert(0, '$ROOT/tools'); from darksoft import read_program_bank
 for b in (0, 1, 3, 4, 6, 7):
-    open('$B/banks/bank%d-std.bin' % b, 'wb').write(read_program_bank('$PACK/SIMM 1-2', b, 'Standard'))"
+    open('$B/banks/bank%d-std.bin' % b, 'wb').write(read_program_bank('$PACK/SIMM 1-2', b, 'Standard'))
+open('$B/banks/bank1-custom.bin', 'wb').write(read_program_bank('$PACK/SIMM 1-2', 1, 'Custom'))"
     cd "$ROOT/vendor/sfIII3-cps3-decomp"
     python3 "$ROOT/tools/port_bank.py" "$B/banks/bank6-std.bin" makoto 06700000 06740000 "$B/banks" | grep -v 'MESA\|pci id'
     # 4rd Strike keeps data of its own in 06620000-06780395: its module goes in the free end of SIMM2
@@ -78,7 +79,7 @@ for b in (0, 1, 3, 4, 6, 7):
     python3 "$ROOT/tools/build_jojoba.py" jojo "$B/banks/bank3-std.bin" "$B/jojo-v" | grep -v 'MESA\|pci id'
 
     echo '== Warzard (bank 1): wide mode and its screen mode item'
-    python3 "$ROOT/tools/build_warzard.py" "$B/banks/bank1-std.bin" "$B/warzard" | grep -v '^  '
+    python3 "$ROOT/tools/build_warzard.py" "$B/banks/bank1-std.bin" "$B/warzard" "$B/banks/bank1-custom.bin" | grep -v '^  '
 
     echo '== patches/'
     mkdir -p "$P"

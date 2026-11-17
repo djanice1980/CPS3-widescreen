@@ -84,6 +84,7 @@ GAMES = {
             0x062787A4: (0x061BE760, '_wide_ss_base'),
         },
         window_row7=0x062607A0 + 7 * 18,
+        mem_halt=0x061BA422,        # the memory check's halt on an error (MEM_HALT_CODE)
         header=dict(CAMERA_X=0x0203145C, STAGE_NO=0x02031459, CAM_LIMITS=0x061D9FD8, SCROLL_OFS=0x0205DDBE,
                     SCHED_PASS=0x020167D0, CAMERA=0x06176C02, SCROLL_PUBLISH=0x061BE49C, SCROLL_RESET=0x061BE35E,
                     SET_MODE=0x061C66A0,
@@ -133,6 +134,7 @@ GAMES = {
             0x06200EF4: (0x0616C704, '_wide_ss_base'),
         },
         window_row7=0x061ED310 + 7 * 18,
+        mem_halt=0x0616841E,
         header=dict(CAMERA_X=0x0202D040, STAGE_NO=0x0202D03D, CAM_LIMITS=0x061846A4, SCROLL_OFS=0x0205567A,
                     SCHED_PASS=0x020123B4, CAMERA=0x06128E82, SCROLL_PUBLISH=0x0616C440, SCROLL_RESET=0x0616C302,
                     SET_MODE=0x0617464C,
@@ -292,6 +294,40 @@ def sched_stub(at, frame_step):
     return blob, [(at, 2 * (len(code) - 1))]
 
 
+# The test menu's memory check ends, when a check failed, in a halt: "bra self" with the last results just
+# printed. In wide mode they are still in the shadow (the copy runs from the scheduler, which never runs again),
+# so the screen kept "CHECKING..." on the last rows. The halt goes through a stub that runs the frame step first.
+MEM_HALT_CODE = bytes.fromhex('50F1 2008 8901 AFFE 0009'.replace(' ', ''))  # mov.l @(4,r15),r0 / tst / bt +1 / bra self / nop
+
+
+def halt_stub(at, frame_step, back):
+    """The memory check's last test: no error -> back (the code after the halt); error -> frame_step(), halt."""
+    assert at % 4 == 0
+    code = [
+        0x50F1,  # mov.l @(4,r15),r0    the check's error flag
+        0x2008,  # tst r0,r0
+        0x8904,  # bt ok
+        0xD100,  # mov.l @(frame),r1
+        0x410B,  # jsr @r1
+        0x0009,  # nop
+        0xAFFE,  # halt: bra halt
+        0x0009,  # nop
+        0xD000,  # ok: mov.l @(back),r0
+        0x402B,  # jmp @r0
+        0x0009,  # nop
+        0x0009,  # pad
+    ]
+    pool = at + 2 * len(code)
+    assert pool % 4 == 0
+    for i, li in ((3, 0), (8, 1)):
+        pc = at + 2 * i
+        d = (pool + 4 * li - ((pc & ~3) + 4)) // 4
+        assert 0 <= d < 256
+        code[i] |= d
+    blob = b''.join(struct.pack('>H', c) for c in code) + struct.pack('>II', frame_step, back)
+    return blob, [(at, 2 * (len(code) - 1))]
+
+
 def main():
     game, prog_path, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
     G = dict(GAMES[game], name=game)
@@ -368,6 +404,18 @@ def main():
     assert len(t) <= len(SCHED_HOOK_CODE)
     img[SCHED_HOOK - BASE:SCHED_HOOK - BASE + len(t)] = t
     code_ranges.append((SCHED_HOOK, 6))
+    d_at += (len(blob) + 15) // 16 * 16
+
+    # the memory check's halt shows the last results first
+    halt = G['mem_halt']
+    assert halt % 4 == 2 and stock[halt - BASE:halt - BASE + 10] == MEM_HALT_CODE
+    blob, cr = halt_stub(d_at, syms['_wide_text_frame'], halt + 10)
+    put(d_at, blob)
+    code_ranges.extend(cr)
+    t = trampoline(halt, d_at)
+    assert len(t) == len(MEM_HALT_CODE)
+    img[halt - BASE:halt - BASE + len(t)] = t
+    code_ranges.append((halt, 6))
 
     # 3. method pointers
     for slot, (old, sym) in G['pointers'].items():
