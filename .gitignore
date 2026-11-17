@@ -1,0 +1,5 @@
+vendor/
+rom/
+build/
+__pycache__/
+dist/

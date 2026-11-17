@@ -1,0 +1,29 @@
+# Fight HUD routines that place cells at fixed 384-pixel columns. tools/gen_hud.py copies each one with its
+# text-layer columns moved by DE_X[3] (7 in wide mode, 0 in normal). Routines the game already places by
+# screen mode (score, win marks, combo windows, insert-coin text) are not listed.
+# source	function
+VITAL.c	vital_cont_init
+VITAL.c	vital_control
+VITAL.c	vital_parts_allwrite
+count.c	count_cont_init
+count.c	count_cont_reset
+count.c	counter_control
+count.c	counter_flash
+count.c	counter_color_clear
+count.c	bcount_cont_init
+count.c	bcount_cont_reset
+sc_sub_3.c	stun_put
+sc_sub_3.c	stun_mark_write
+sc_sub_3.c	stun_gauge_waku_write
+sc_trans.c	player_name
+sc_trans.c	stun_mark_put
+sc_trans.c	max_mark_write
+sc_trans.c	sa_stock_trans
+sc_trans.c	sa_fullstock_trans
+sc_trans.c	player_face
+spgauge.c	wipe_check
+spgauge.c	sagauge_color_chenge
+spgauge.c	sa_moji_trans
+spgauge.c	sa_waku_trans
+spgauge.c	spgauge_wipe_write
+spgauge.c	sa_gauge_trans
