@@ -4,12 +4,16 @@
 #   app/test_windows.sh <work dir> [<pack .7z> <MAME rom dir> <formats>]
 # Without a pack it only opens the window. <work dir>/shot.png is the window at the end, result.json what the app
 # reported, out/ the files it made. Needs docker, wine and ImageMagick (magick).
+# <work dir> must be new, empty, or an earlier test's folder (it has a .cps3ws-test file): it is replaced.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 work=$(realpath -m "$1") pack=${2:-} roms=${3:-} formats=${4:-darksoft,mame,mister}
 [ "$formats" = all ] && formats=darksoft,mame,mister
 EXE="$ROOT/build/app/CPS3-Widescreen-windows-x64.exe"
-rm -rf "$work" && mkdir -p "$work/out"
+if [ -e "$work" ] && [ ! -e "$work/.cps3ws-test" ] && [ -n "$(ls -A "$work" 2>/dev/null)" ]; then
+    echo "$work exists and is not a test folder of this script: give a new folder"; exit 2
+fi
+rm -rf "$work" && mkdir -p "$work/out" && touch "$work/.cps3ws-test"
 
 if ! docker exec cps3ws-xvfb true 2>/dev/null; then
     docker rm -f cps3ws-xvfb >/dev/null 2>&1 || true
@@ -44,4 +48,13 @@ docker exec cps3ws-xvfb sh -c 'xwd -root -display :99 -silent' > "$work/shot.xwd
 wait $pid || true
 wineserver -w
 magick "$work/shot.xwd" "$work/shot.png" && rm "$work/shot.xwd"
-grep -o '"result": "[a-z]*"' "$work/result.json" 2>/dev/null || echo "no result.json"
+python3 -I -c "
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except OSError:
+    sys.exit('no result.json (crash before the window opened?)')
+print('result:', d['result'], '| default save folder:', d.get('default_out'))
+if d['result'] in ('failed', 'warning'):
+    print('message:', d['message'])
+" "$work/result.json"

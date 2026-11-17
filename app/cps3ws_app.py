@@ -19,7 +19,7 @@ if not getattr(sys, 'frozen', False):
 import cps3ws  # noqa: E402
 
 APP = 'CPS3 Widescreen'
-VERSION = '1.1.0'
+VERSION = '1.1.1'
 REPO = 'https://github.com/djanice1980/CPS3-widescreen'
 ON_WINDOWS = sys.platform == 'win32'
 
@@ -118,32 +118,52 @@ Street Fighter, JoJo's Venture, JoJo's Bizarre Adventure, Warzard and Red Earth 
 project is not affiliated with Capcom, Darksoft or Jotego and contains none of their ROM data.'''
 
 
+_helper_ok = {}
+last_dialog = {}  # the last desktop chooser run: command, exit code, output (for the self-test and bug reports)
+
+
+def helper_works(name):
+    """True when a desktop helper program is installed and starts (asked once: `<name> --version`). A helper that
+    is installed but cannot start must not be mistaken for one the user cancelled."""
+    if name not in _helper_ok:
+        ok = False
+        if shutil.which(name):
+            try:
+                ok = subprocess.run([name, '--version'], capture_output=True, env=cps3ws.system_env(),
+                                    timeout=15).returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                ok = False
+        _helper_ok[name] = ok
+    return _helper_ok[name]
+
+
 def native_dialog(kind, title, initial):
-    """A KDE or GNOME file chooser on Linux when one is installed (Tk's own is plain); None means use Tk's."""
+    """The desktop's own file chooser on Linux (KDE's kdialog or GNOME's zenity) when one works: the chosen path,
+    '' when the user cancelled, None when there is no working helper (the caller then uses Tk's plain chooser)."""
     if ON_WINDOWS:
         return None
     start = initial if initial and os.path.exists(initial) else os.path.expanduser('~')
-    cmds = []
-    if shutil.which('kdialog'):
-        if kind == 'dir':
-            cmds.append(['kdialog', '--title', title, '--getexistingdirectory', start])
-        else:
-            cmds.append(['kdialog', '--title', title, '--getopenfilename', start,
-                         'Darksoft pack (*.7z *.zip)'])
-    if shutil.which('zenity'):
-        c = ['zenity', '--file-selection', '--title', title, '--filename', start.rstrip('/') + '/']
-        if kind == 'dir':
-            c.append('--directory')
-        else:
-            c += ['--file-filter', 'Darksoft pack | *.7z *.zip']
-        cmds.append(c)
-    for c in cmds:
-        try:
-            r = subprocess.run(c, capture_output=True, text=True)
-        except OSError:
-            continue
-        return r.stdout.strip() if r.returncode == 0 else ''
-    return None
+    if kind == 'dir' and not os.path.isdir(start):
+        start = os.path.dirname(start)
+    if helper_works('kdialog'):
+        cmd = ['kdialog', '--title', title]
+        cmd += (['--getexistingdirectory', start] if kind == 'dir' else
+                ['--getopenfilename', start, 'Darksoft pack (*.7z *.zip)'])
+    elif helper_works('zenity'):
+        cmd = ['zenity', '--file-selection', '--title', title,
+               '--filename', start if os.path.isfile(start) else start.rstrip('/') + '/']
+        cmd += ['--directory'] if kind == 'dir' else ['--file-filter', 'Darksoft pack | *.7z *.zip']
+    else:
+        return None
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, env=cps3ws.system_env())
+    except OSError:
+        return None
+    last_dialog.update(command=cmd[0], exit=r.returncode, stdout=r.stdout.strip(), stderr=r.stderr.strip()[-300:])
+    if r.returncode == 0:
+        return r.stdout.strip()
+    # kdialog and zenity exit with 1 for Cancel; anything else is a failure: use Tk's chooser
+    return '' if r.returncode == 1 else None
 
 
 def open_folder(path):
@@ -153,9 +173,33 @@ def open_folder(path):
         elif sys.platform == 'darwin':
             subprocess.Popen(['open', path])
         else:
-            subprocess.Popen(['xdg-open', path])
+            subprocess.Popen(['xdg-open', path], env=cps3ws.system_env())
     except OSError as e:
         messagebox.showerror(APP, f'Could not open {path}:\n{e}')
+
+
+def running_under_wine():
+    if not ON_WINDOWS:
+        return False
+    try:
+        import ctypes
+        return hasattr(ctypes.windll.ntdll, 'wine_get_version')
+    except (OSError, AttributeError):
+        return False
+
+
+def default_out():
+    """Where to save unless the user chooses: 'CPS3 Widescreen' in the home folder. Under Wine the Windows home
+    folder is hidden inside the Wine prefix, so the Linux home folder is used: Wine gives it to Windows programs
+    as WINEHOMEDIR, written like \\??\\Z:\\home\\name (it does not pass HOME)."""
+    home = os.path.expanduser('~')
+    if running_under_wine():
+        h = os.environ.get('WINEHOMEDIR', '')
+        if h.startswith('\\??\\'):
+            h = h[4:]
+        if h and os.path.isdir(h):
+            home = h
+    return os.path.join(home, 'CPS3 Widescreen')
 
 
 class App:
@@ -224,7 +268,7 @@ class App:
             anchor='w', pady=(2, 0))
 
         # 4. output
-        self.out_var = tk.StringVar(value=os.path.join(os.path.expanduser('~'), 'CPS3 Widescreen'))
+        self.out_var = tk.StringVar(value=default_out())
         s = self.section(f, 4, '4.  Save to')
         row = ttk.Frame(s)
         row.pack(fill='x')
@@ -341,10 +385,10 @@ class App:
 
         def work():
             try:
-                written = cps3ws.make(pack, out, formats, [roms] if roms else [],
-                                      log=lambda s: self.events.put(('log', s)),
-                                      step=lambda i, n, t: self.events.put(('step', i, n, t)))
-                self.events.put(('done', written))
+                result = cps3ws.make(pack, out, formats, [roms] if roms else [],
+                                     log=lambda s: self.events.put(('log', s)),
+                                     step=lambda i, n, t: self.events.put(('step', i, n, t)))
+                self.events.put(('done', result))
             except cps3ws.Failed as e:
                 self.events.put(('failed', str(e)))
             except Exception:  # anything else is a bug: show all of it
@@ -367,18 +411,24 @@ class App:
                     self.status.configure(text=f'{t}...' if i < n else t)
                 elif kind == 'done':
                     self.finish()
-                    names = '\n'.join('  ' + os.path.basename(p) for p in ev[1])
-                    self.status.configure(text='Done.')
-                    messagebox.showinfo(APP, f'Done. In {self.last_out}:\n{names}\n\nThe Instructions tab says '
-                                             'what to do with them.')
+                    names = '\n'.join('  ' + os.path.basename(p) for p in ev[1]['written'])
+                    skipped = ev[1]['skipped']
+                    note = ''
+                    if skipped:
+                        note = ('\n\nNot made for MAME / MiSTer, because your ROM folder has no BIOS that can '
+                                'start them (add sfiii3nr1.zip or sfiii3n.zip and run again):\n' +
+                                '\n'.join('  ' + t for t in skipped))
+                    self.status.configure(text='Done, with games left out.' if skipped else 'Done.')
+                    messagebox.showinfo(APP, f'Done. In {self.last_out}:\n{names}{note}\n\nThe Instructions tab '
+                                             'says what to do with them.')
                 elif kind == 'failed':
                     self.finish()
-                    self.status.configure(text='Stopped: nothing was made.')
+                    self.status.configure(text='Stopped: nothing was made or changed.')
                     self.write_log('STOPPED: ' + ev[1])
                     messagebox.showerror(APP, ev[1])
                 elif kind == 'crash':
                     self.finish()
-                    self.status.configure(text='Stopped by an error.')
+                    self.status.configure(text='Stopped by an error: nothing was made or changed.')
                     self.write_log(ev[1])
                     messagebox.showerror(APP, 'Something went wrong (details in the log box). Please report it at '
                                               f'{REPO}/issues with the log text.')
@@ -411,11 +461,20 @@ def self_test(app, conf_path):
     app.roms_var.set(conf.get('roms', ''))
     app.out_var.set(conf.get('out', ''))
     app.nb.select(int(conf.get('tab', 0)))
+    picked = {}
+    if conf.get('pick'):  # press a real "Choose..." button; the test drives or closes the chooser that opens
+        def press():
+            before = app.roms_var.get()
+            app.pick_roms()
+            picked.update(before=before, after=app.roms_var.get(), chooser=dict(last_dialog))
+        app.root.after(1000, press)
 
     def report(kind):
         def show(title, text):
             with open(conf['result'], 'w', encoding='utf-8') as f:
-                json.dump({'result': kind, 'message': text, 'log': app.log.get('1.0', 'end')}, f)
+                json.dump({'result': kind, 'message': text, 'log': app.log.get('1.0', 'end'),
+                           'helpers': {h: helper_works(h) for h in ('kdialog', 'zenity', 'xdg-open')},
+                           'default_out': default_out(), 'picked': picked}, f)
             app.root.after(int(conf.get('quit_after_ms', 4000)), app.root.destroy)
         return show
     messagebox.showinfo, messagebox.showerror = report('done'), report('failed')

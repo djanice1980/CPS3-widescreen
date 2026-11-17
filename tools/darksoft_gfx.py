@@ -16,6 +16,8 @@ import zipfile
 
 import numpy as np
 
+from darksoft import GFX_FILE_BYTES, PackError
+
 BANK = 0x1000000
 CHIP = 0x200000
 
@@ -27,7 +29,11 @@ def gfx_files(pack_gfx_dir):
         stem = f'SIMM{n}_Final'
         fs = sorted(glob.glob(f'{glob.escape(pack_gfx_dir)}/{stem}*.bin'))
         if not fs:
-            raise FileNotFoundError(f'{pack_gfx_dir}: no {stem}*.bin')
+            raise PackError(f'{pack_gfx_dir} has no {stem}*.bin file')
+        for f in fs:
+            if os.path.getsize(f) != GFX_FILE_BYTES:
+                raise PackError(f'{f} is {os.path.getsize(f)} bytes; a Darksoft graphics SIMM file is '
+                                f'{GFX_FILE_BYTES}')
         out[n] = {os.path.basename(f)[len(stem):-4]: f for f in fs}
     return out
 

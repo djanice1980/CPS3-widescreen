@@ -6,7 +6,7 @@
 
 <pack dir> holds "SIMM 1-2" and "SIMM 3-6" as the Darksoft pack has them. <out dir> gets a copy of the pack with
 the program SIMM files (SIMM1/SIMM2, U9 and U10) of the chosen kind(s) patched; the graphics SIMMs are copied as
-they are. With --in-place, <out dir> must already be such a copy (another bank of it patched, say) and is
+they are (only "SIMM 1-2" and "SIMM 3-6" are copied, nothing else that is in <pack dir>). With --in-place, <out dir> must already be such a copy (another bank of it patched, say) and is
 patched where it is. Before writing anything it checks, run by run, that the bank holds the stock bytes the
 patch expects.
 
@@ -132,7 +132,10 @@ def main(argv=None):
     if not a.in_place:
         if os.path.exists(a.out):
             sys.exit(f'{a.out} exists: give a new directory (or --in-place to patch it)')
-        shutil.copytree(a.pack, a.out)
+        # only the pack's own two folders: the folder that holds them may be the user's Downloads
+        os.makedirs(a.out)
+        for sub in ('SIMM 1-2', 'SIMM 3-6'):
+            shutil.copytree(os.path.join(a.pack, sub), os.path.join(a.out, sub))
     for kind, simm, u9, u10, words, nruns, form, before in out:
         u9 = os.path.join(a.out, os.path.relpath(u9, src))
         u10 = os.path.join(a.out, os.path.relpath(u10, src))

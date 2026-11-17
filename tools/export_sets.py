@@ -166,6 +166,9 @@ def main(argv=None):
             mister_rows.append(f'  {os.path.basename(mra)}  ->  games/mame/{zname}')
             print(f'  {mra} (assembles to {len(stream):#x} bytes, md5 {C.md5(stream)})')
 
+    if not bios_rows:
+        sys.exit('none of the games can be made with the BIOS found: they need a 3rd Strike NO CD set '
+                 '(sfiii3nr1.zip or sfiii3n.zip), or their own NO CD set')
     if a.mame:
         open(os.path.join(a.mame, 'README.txt'), 'w', encoding='utf-8', newline='\n').write(
             MAME_README.format(table='\n'.join(mame_rows), bios='\n'.join(bios_rows)))

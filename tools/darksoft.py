@@ -13,6 +13,12 @@ import numpy as np
 
 NBANK = 8
 BANK_BYTES = 8 * 1024 * 1024  # program bytes per SIMM per bank
+PROGRAM_FILE_BYTES = NBANK * BANK_BYTES // 2  # each of a SIMM's two files (U9, U10) holds half of every word
+GFX_FILE_BYTES = NBANK * 16 * 1024 * 1024
+
+
+class PackError(Exception):
+    """The folder is not one complete Darksoft pack (a file missing, doubled or of the wrong size)."""
 
 
 def one_file(d, stem):
@@ -20,13 +26,26 @@ def one_file(d, stem):
     SIMM1_Jumper_U9_StandardSH2_WarzardFIX.bin), so files are found by their name up to the suffix."""
     fs = sorted(glob.glob(f'{glob.escape(d)}/{stem}*.bin'))
     if len(fs) != 1:
-        raise FileNotFoundError(f'{d}: expected one {stem}*.bin, found {len(fs)}: {[os.path.basename(f) for f in fs]}')
+        names = ', '.join(os.path.basename(f) for f in fs) or 'none'
+        raise PackError(f'{d} should hold one {stem}*.bin file; found {len(fs)} ({names})')
+    if os.path.getsize(fs[0]) != PROGRAM_FILE_BYTES:
+        raise PackError(f'{fs[0]} is {os.path.getsize(fs[0])} bytes; a Darksoft program SIMM file is '
+                        f'{PROGRAM_FILE_BYTES}')
     return fs[0]
 
 
 def simm_paths(root, simm, kind):
     d = f'{root}/{kind} SH2'
     return one_file(d, f'SIMM{simm}_Jumper_U9_{kind}SH2'), one_file(d, f'SIMM{simm}_Jumper_U10_{kind}SH2')
+
+
+def check_program_files(root):
+    """Raise PackError unless root ("SIMM 1-2") has each program file once, at its full size, for both CPU kinds."""
+    for kind in ('Standard', 'Custom'):
+        if not os.path.isdir(f'{root}/{kind} SH2'):
+            raise PackError(f'{root} has no "{kind} SH2" folder')
+        for simm in (1, 2):
+            simm_paths(root, simm, kind)
 
 
 def read_simm_words(u9_path, u10_path):

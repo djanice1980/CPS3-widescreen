@@ -76,11 +76,16 @@ click **More info**, then **Run anyway**.
 
 Then, in the app:
 
-1. **Your Darksoft CPS-3 pack:** choose the .7z you downloaded (or the folder you extracted it to).
+1. **Your Darksoft CPS-3 pack:** choose the .7z you downloaded (or the folder you extracted it to; only its
+   `SIMM 1-2` and `SIMM 3-6` folders are read).
 2. **What to make:** tick the Darksoft pack, MAME sets, MiSTer files, or any mix.
 3. **Your MAME ROM folder** (MAME and MiSTer only): the folder that holds `sfiii3nr1.zip` or `sfiii3n.zip`.
 4. **Save to:** an empty folder is best.
 5. Click **Make files**. It takes a few minutes; **Open output folder** shows the results.
+
+Everything is made in a work folder and moved into the output folder only when all of it is complete. If the app
+stops for any reason (a wrong pack, no BIOS, a full disk, closing the window), the output folder is left as it
+was and the message says what to fix.
 
 The Instructions tab in the app covers flashing, turning widescreen on, MAME and MiSTer, the same as the sections
 below.
@@ -150,8 +155,8 @@ tools/make_pack.sh ~/Downloads/"Darksoft CPS-3 2021-01-09.7z" out --format miste
 
 `--format` takes `darksoft`, `mame`, `mister` (several separated by commas) or `all`; without it you get
 `darksoft`. `--roms` is the folder that holds your MAME zips (it can be given more than once). The run takes a
-couple of minutes and needs about 3 GB of free space for `all` (temporary files go in `.cps3ws-work` inside the
-output folder and are removed at the end).
+couple of minutes and needs about 3 GB of free space for `all`. Everything is made in `.cps3ws-work` inside the
+output folder and moved into place when complete; a run that stops leaves the output folder as it was.
 
 The tool checks every patched address against the bytes the patch expects and stops if any differ, so a
 different or modified pack is refused. It also checks that the Custom
@@ -249,13 +254,20 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
   confirmed on a real CPS3 board or on a MiSTer. Reports are welcome in
   [Issues](https://github.com/djanice1980/CPS3-widescreen/issues).
 - The apps: the Linux app ran end to end (all three outputs from the 2021-04-02 .7z) on Ubuntu 20.04 and opens on
-  Ubuntu 24.04, Fedora 42 and Arch; the Windows app ran end to end under Wine 11.22. Both gave the same files as
+  Ubuntu 24.04, Fedora 42 and Arch; its "Choose..." buttons were tested with the real desktop choosers (zenity on
+  Ubuntu 24.04, kdialog on Arch). The Windows app ran end to end under Wine 11.22. Both gave the same files as
   the command line (the zips hold identical files; only their compression differs slightly). The Windows app has
   not been run on real Windows yet.
 - The MAME sets made with a game's own BIOS (New Generation, JoJo) follow MAME's own layout for those sets but
   were not run here.
 - Some non-fight screens (continue, game over, results, a few intro scenes) are still drawn at 4:3 width, with
   black side bars or an offset picture.
+- 3rd Strike, Makoto Fix and 4rd Strike in WIDE: the center-screen fight messages ("K.O.", "YOU LOSE", "PERFECT",
+  time over, winner) appear left of center, and parts of them stay on screen into the next round. The label of a
+  timed super art (such as Yun's Genei-Jin) is drawn in its 4:3 place and stays until the next round. After a
+  match, the right end of the 2P HUD stays for a few frames.
+- New Generation, English GAME CONFIGURATION page (both modes): two stray tiles appear in the top-left corner of
+  the page.
 - At the edges of the wider view, some stage objects can appear a moment late.
 
 ## Building the patches from source
@@ -301,7 +313,8 @@ DISPLAY=:0 app/build_windows.sh
 sets up its own Wine prefix in `build/wine-app` with the official Windows Python 3.12.10 from python.org (MD5
 checked) and PyInstaller, numpy and py7zr from PyPI. Both write to `build/app/`. `app/test_linux.sh` and
 `app/test_windows.sh` run the built apps on a virtual display (Xvfb in a container), fill in the form, make the
-files and save a screenshot, without opening windows on your desktop. To run the app from source instead:
+files and save a screenshot, without opening windows on your desktop. `PICK=zenity` or `PICK=kdialog` with
+`app/test_linux.sh` also presses a real "Choose folder..." button and accepts the desktop chooser that opens. To run the app from source instead:
 `python3 app/cps3ws_app.py` (needs python3-tk and numpy, plus py7zr or 7z for .7z packs).
 
 ## How it works (short version)

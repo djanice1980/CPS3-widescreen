@@ -7,7 +7,8 @@ Applies the prebuilt patches (patches/) to every bank, checks the Custom SH2 fil
     darksoft  <out>/<pack name> - widescreen (...).zip   the patched pack, to flash
     mame      <out>/MAME/<game>/<set>.zip                 MAME NO CD sets (needs a NO CD BIOS from --roms)
     mister    <out>/MiSTer/...                            jtcps3 MRAs and zips (needs a NO CD BIOS from --roms)
-Temporary files go in <out>/.cps3ws-work, removed at the end.
+Everything is made in <out>/.cps3ws-work and moved into place only when all of it is complete, so a run that stops
+part-way leaves <out> as it was. The work folder is removed at the end.
 
 make() is what the app calls: it reports through log(line) and step(done, total, title), and raises Failed with a
 message for the user when something is wrong.
@@ -24,6 +25,8 @@ TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS)
 import check_custom  # noqa: E402
 import cps3sets  # noqa: E402
+import darksoft  # noqa: E402
+import darksoft_gfx  # noqa: E402
 import export_sets  # noqa: E402
 import patch_darksoft  # noqa: E402
 
@@ -59,38 +62,81 @@ def pack_name(src):
     return base
 
 
+def system_env():
+    """The environment for programs this tool starts. The single-file Linux app runs with LD_LIBRARY_PATH set to its
+    own bundled libraries (PyInstaller does that), and a system program that inherits it fails to load (kdialog,
+    zenity, even /bin/sh on Arch). PyInstaller keeps the user's own value in LD_LIBRARY_PATH_ORIG."""
+    env = dict(os.environ)
+    if getattr(sys, 'frozen', False) and sys.platform != 'win32':
+        orig = env.pop('LD_LIBRARY_PATH_ORIG', None)
+        if orig:
+            env['LD_LIBRARY_PATH'] = orig
+        else:
+            env.pop('LD_LIBRARY_PATH', None)
+    return env
+
+
 def find_pack_root(d):
-    """The folder under d that holds 'SIMM 1-2' and 'SIMM 3-6'."""
-    for root, dirs, _ in os.walk(d):
-        if 'SIMM 1-2' in dirs and 'SIMM 3-6' in dirs:
-            return root
+    """The folder that holds 'SIMM 1-2' and 'SIMM 3-6': d itself, or a folder one or two levels below it."""
+    level = [d]
+    for _ in range(3):
+        below = []
+        for root in level:
+            try:
+                dirs = sorted(e.name for e in os.scandir(root) if e.is_dir())
+            except OSError:
+                continue
+            if 'SIMM 1-2' in dirs and 'SIMM 3-6' in dirs:
+                return root
+            below += [os.path.join(root, x) for x in dirs]
+        level = below
     raise Failed(f'No "SIMM 1-2" and "SIMM 3-6" folders in {d}. Choose the Darksoft CPS-3 pack '
                  '(the .7z you downloaded, or the folder you extracted it to).')
+
+
+def check_pack(root):
+    """Stop with a plain message unless root holds one complete pack (each file once, at its full size)."""
+    try:
+        darksoft.check_program_files(os.path.join(root, 'SIMM 1-2'))
+        darksoft_gfx.gfx_files(os.path.join(root, 'SIMM 3-6'))
+    except darksoft.PackError as e:
+        raise Failed(f'This is not one complete Darksoft CPS-3 pack: {e}. Extract the pack again into an empty '
+                     'folder, or choose the .7z file itself.') from None
 
 
 def extract(src, dest, log):
     """Unpack a .7z or .zip pack into dest."""
     os.makedirs(dest)
+    broken = (f'{src} could not be unpacked ({{}}). It may be an incomplete download: download the pack again, '
+              'or extract it yourself and choose the folder.')
     if src.lower().endswith('.zip'):
-        with zipfile.ZipFile(src) as z:
-            z.extractall(dest)
+        try:
+            with zipfile.ZipFile(src) as z:
+                z.extractall(dest)
+        except (zipfile.BadZipFile, EOFError) as e:
+            raise Failed(broken.format(e)) from None
         return
     try:
         import py7zr
     except ImportError:
         py7zr = None
     if py7zr:
-        with py7zr.SevenZipFile(src, 'r') as z:
-            z.extractall(dest)
+        try:
+            with py7zr.SevenZipFile(src, 'r') as z:
+                z.extractall(dest)
+        except OSError:
+            raise  # disk full, no permission: reported as a file error by make()
+        except Exception as e:  # py7zr raises its own errors, lzma's and EOFError for a damaged archive
+            raise Failed(broken.format(f'{type(e).__name__}: {e}')) from None
         return
     seven = shutil.which('7z') or shutil.which('7zz') or shutil.which('7za')
     if not seven:
         raise Failed('Reading a .7z needs the Python module py7zr or the 7z program. Install one '
                      '(see README), or extract the pack yourself and choose the folder.')
     import subprocess
-    r = subprocess.run([seven, 'x', '-bd', '-y', f'-o{dest}', src], capture_output=True, text=True)
+    r = subprocess.run([seven, 'x', '-bd', '-y', f'-o{dest}', src], capture_output=True, text=True, env=system_env())
     if r.returncode:
-        raise Failed(f'7z could not extract {src}:\n{r.stdout[-2000:]}{r.stderr[-2000:]}')
+        raise Failed(broken.format('7z: ' + (r.stderr.strip() or r.stdout.strip())[-600:]))
 
 
 def describe_pack(root):
@@ -134,6 +180,8 @@ def call(main, argv, log, what):
     except SystemExit as e:
         if e.code not in (None, 0):
             raise Failed(f'{what}: {e.code}') from None
+    except darksoft.PackError as e:
+        raise Failed(f'{what}: {e}') from None
     finally:
         out.flush()
 
@@ -157,20 +205,38 @@ def is_own_output(d):
         return False
 
 
-def remove_own_output(d):
-    """Replace an earlier run's folder; never delete a folder this tool did not write."""
-    if not is_own_output(d):
-        raise Failed(f'{d} already exists and was not made by this tool. Choose another output folder '
-                     '(an empty one is best).')
-    shutil.rmtree(d)
+def inside(path, folder):
+    """True when path is folder or lies in it (symbolic links resolved)."""
+    path, folder = os.path.realpath(path), os.path.realpath(folder)
+    try:
+        return os.path.commonpath([path, folder]) == folder
+    except ValueError:  # different drives
+        return False
+
+
+def usable_games(found):
+    """(titles that can be made, titles that cannot) with the BIOS chips found."""
+    ok, no = [], []
+    for g in cps3sets.GAMES:
+        (ok if cps3sets.pick_bios(g, found) else no).append(g['title'])
+    return ok, no
 
 
 def make(pack_src, out, formats=('darksoft',), roms=(), log=None, step=None, patches=PATCHES):
-    """Make the outputs; returns the list of paths written."""
+    """Make the outputs. Returns {'written': [paths], 'skipped': [titles of games left out of MAME / MiSTer]}."""
+    try:
+        return _make(pack_src, out, formats, roms, log, step, patches)
+    except OSError as e:  # disk full, no permission, a file in use: say which file
+        where = f' ({e.filename})' if e.filename else ''
+        raise Failed(f'File error: {e.strerror or e}{where}. Nothing was changed in the output folder.') from e
+
+
+def _make(pack_src, out, formats, roms, log, step, patches):
     if log is None:
         console = sys.stdout  # the tools' output is redirected into log(): keep the real console here
         log = lambda s: print(s, file=console, flush=True)  # noqa: E731
     formats = [f for f in FORMATS if f in formats]
+    export = [f for f in formats if f in ('mame', 'mister')]
     if not formats:
         raise Failed('Choose at least one thing to make.')
     if not os.path.exists(pack_src):
@@ -179,7 +245,7 @@ def make(pack_src, out, formats=('darksoft',), roms=(), log=None, step=None, pat
         raise Failed(f'No prebuilt patches in {patches}.')
     steps = (['Unpacking the Darksoft pack'] + [f'Patching bank {b}' for b, *_ in BANKS] + ['Checking Custom SH2 files'] +
              (['Writing the Darksoft pack zip'] if 'darksoft' in formats else []) +
-             (['Writing MAME / MiSTer files'] if {'mame', 'mister'} & set(formats) else []) + ['Cleaning up'])
+             (['Writing MAME / MiSTer files'] if export else []) + ['Moving the files into place'])
     n = [0]
 
     def next_step():
@@ -188,28 +254,37 @@ def make(pack_src, out, formats=('darksoft',), roms=(), log=None, step=None, pat
         log(f'== {steps[n[0]]}')
         n[0] += 1
 
-    found = None
-    if {'mame', 'mister'} & set(formats):
+    skipped = []
+    if export:
         found = cps3sets.find_bioses([r for r in roms if r])
+        need_bios = ('choose the folder that holds sfiii3nr1.zip or sfiii3n.zip (3rd Strike, NO CD). Only its BIOS '
+                     'chip is used.')
         if not found:
-            raise Failed('MAME and MiSTer files need a CPS3 BIOS from your own MAME sets: choose the folder that '
-                         'holds sfiii3nr1.zip or sfiii3n.zip (3rd Strike, NO CD). Only its BIOS chip is used.')
+            raise Failed(f'MAME and MiSTer files need a CPS3 BIOS from your own MAME sets: {need_bios}')
         for fam, lst in found.items():
             for crc, plain, where in lst:
                 log(f'BIOS found: {cps3sets.BIOSES[crc][1]} in {where}')
+        ok, skipped = usable_games(found)
+        if not ok:
+            have = ', '.join(cps3sets.BIOSES[crc][1] for lst in found.values() for crc, *_ in lst)
+            raise Failed(f'The CPS3 BIOS found ({have}) cannot start these games. For MAME and MiSTer files, '
+                         f'{need_bios}')
+        for title in skipped:
+            log(f'NOT MADE for MAME / MiSTer: {title} (needs a 3rd Strike NO CD BIOS, or its own)')
+
+    finals = {'mame': os.path.join(out, 'MAME'), 'mister': os.path.join(out, 'MiSTer')}
+    for f in export:
+        d = finals[f]
+        if os.path.lexists(d) and not is_own_output(d):
+            raise Failed(f'{d} already exists and was not made by this tool, so it will not be replaced. Choose '
+                         'another output folder (an empty one is best). If that folder is left over from a run '
+                         'that was stopped, delete it.')
 
     os.makedirs(out, exist_ok=True)
-    need = (1.0 if os.path.isdir(pack_src) else 1.8) + 0.6 * ('darksoft' in formats) + \
-        0.5 * ('mame' in formats) + 0.5 * ('mister' in formats)
+    need = (1.0 if os.path.isdir(pack_src) else 1.8) + 0.6 * ('darksoft' in formats) + 0.5 * len(export)
     free = shutil.disk_usage(out).free / GB
     if free < need:
         raise Failed(f'Not enough free space in {out}: about {need:.1f} GB needed, {free:.1f} GB free.')
-
-    for f, sub in (('mame', 'MAME'), ('mister', 'MiSTer')):
-        d = os.path.join(out, sub)
-        if f in formats and os.path.exists(d) and not is_own_output(d):
-            raise Failed(f'{d} already exists and was not made by this tool. Choose another output folder '
-                         '(an empty one is best).')
 
     work = os.path.join(out, WORK)
     if os.path.isdir(work):
@@ -220,9 +295,13 @@ def make(pack_src, out, formats=('darksoft',), roms=(), log=None, step=None, pat
         next_step()
         if os.path.isdir(pack_src):
             pack = find_pack_root(pack_src)
+            for sub in ('SIMM 1-2', 'SIMM 3-6'):
+                if inside(out, os.path.join(pack, sub)):
+                    raise Failed(f'The output folder is inside the pack\'s "{sub}" folder. Choose another one.')
         else:
             extract(pack_src, os.path.join(work, 'pack'), log)
             pack = find_pack_root(os.path.join(work, 'pack'))
+        check_pack(pack)
         log(describe_pack(pack))
 
         patched = os.path.join(work, 'patched')
@@ -238,35 +317,42 @@ def make(pack_src, out, formats=('darksoft',), roms=(), log=None, step=None, pat
                 call(check_custom.main, [pack, patched, str(bank), os.path.join(patches, code + '.json')], log,
                      f'Custom SH2 check, bank {bank}')
 
+        moves = []  # (made in the work folder, its place in out)
         if 'darksoft' in formats:
             next_step()
-            z = os.path.join(out, f'{pack_name(pack_src)} - widescreen ({GAMES_NOTE}).zip')
-            if os.path.exists(z):
-                os.remove(z)
-            write_zip(patched, z)
-            log(f'{z}: {os.path.getsize(z) // 2 ** 20} MB')
-            written.append(z)
+            name = f'{pack_name(pack_src)} - widescreen ({GAMES_NOTE}).zip'
+            write_zip(patched, os.path.join(work, name))
+            log(f'{name}: {os.path.getsize(os.path.join(work, name)) // 2 ** 20} MB')
+            moves.append((os.path.join(work, name), os.path.join(out, name)))
 
-        if {'mame', 'mister'} & set(formats):
+        if export:
             next_step()
             argv = [patched, '--stock', pack]
             for r in roms:
                 if r:
                     argv += ['--roms', r]
-            for f, sub in (('mame', 'MAME'), ('mister', 'MiSTer')):
-                if f in formats:
-                    d = os.path.join(out, sub)
-                    if os.path.exists(d):
-                        remove_own_output(d)
-                    argv += [f'--{f}', d]
-                    written.append(d)
-            call(export_sets.main, argv, log, 'MAME / MiSTer files')
-    finally:
+            for f in export:
+                staged = os.path.join(work, os.path.basename(finals[f]))
+                argv += [f'--{f}', staged]
+                moves.append((staged, finals[f]))
+            # the tools print the paths they write: show them where they will be
+            call(export_sets.main, argv, lambda line: log(line.replace(work + os.sep, out + os.sep)),
+                 'MAME / MiSTer files')
+
+        # everything is complete: only now touch the output folder
         next_step()
+        for staged, final in moves:
+            if os.path.isdir(final):
+                if not is_own_output(final):  # checked at the start; it must not have changed meanwhile
+                    raise Failed(f'{final} was changed while the files were being made; nothing was replaced.')
+                shutil.rmtree(final)
+            os.replace(staged, final)
+            written.append(final)
+    finally:
         shutil.rmtree(work, ignore_errors=True)
     if step:
         step(len(steps), len(steps), 'Done')
-    return written
+    return {'written': written, 'skipped': skipped}
 
 
 def main(argv=None):
