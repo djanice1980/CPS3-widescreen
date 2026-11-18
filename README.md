@@ -248,7 +248,8 @@ In the `Custom SH2` files, the two JoJo banks (3 and 4) now hold the same revisi
 `Standard SH2` files, not the revision Darksoft put there (see
 [JoJo on a Custom SH2 board](#jojo-on-a-custom-sh2-board)). That has never been run on a board. If a JoJo game
 misbehaves on your Custom SH2 board, flash the original pack's `Custom SH2` files again and please open an
-issue.
+issue. Reports from Custom SH2 boards are wanted either way: what to try is under
+[Status and known issues](#status-and-known-issues).
 
 ## MAME
 
@@ -296,6 +297,19 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
 - Tested in MAME 0.289: all seven games boot from all three outputs' data, and run in both modes. Not yet
   confirmed on a real CPS3 board or on a MiSTer. Reports are welcome in
   [Issues](https://github.com/djanice1980/CPS3-widescreen/issues).
+- **Wanted: test reports from Custom SH2 boards.** No board with the original security-cart CPU was available
+  for this project, and MAME has no such board, so the `Custom SH2` files are the least tested part of it. If
+  you run one, a short report in [Issues](https://github.com/djanice1980/CPS3-widescreen/issues) helps a lot,
+  also when everything works. What to try:
+  1. 3rd Strike: open the game settings page of the test menu and set SCREEN MODE to WIDE. Up to v1.4.1 this
+     is the step that failed when the file was run in MAME the way a security cart runs it.
+  2. JoJo's Venture and JoJo HFTF: does the game boot, does the memory test in the test menu pass, can SCREEN
+     MODE be set to WIDE, and do a few rounds play without a freeze? These two banks are new in v1.5.0.
+  3. New Generation, Warzard and Makoto Fix the same way, if you have the time.
+
+  Please say which cartridge BIOS you use (SuperBIOS or UltraBIOS, CD or no-CD), which Darksoft pack the files
+  were made from, and the version of this tool. If a JoJo game misbehaves, flashing the original pack's
+  `Custom SH2` files brings back what you had.
 - The apps: the Linux app ran end to end (all three outputs from the 2021-04-02 .7z) on Ubuntu 20.04 and opens on
   Ubuntu 24.04, Fedora 42 and Arch; its "Choose..." buttons were tested with the real desktop choosers (zenity on
   Ubuntu 24.04, kdialog on Arch). The Windows app ran end to end under Wine 11.22. Both gave the same files as
