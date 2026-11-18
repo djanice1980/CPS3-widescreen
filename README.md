@@ -355,11 +355,25 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
   - those runs reach about a fifth of each program's code. For the rest the map rests on the code-flow
     analysis and on Darksoft's file of the other revision. Halfwords with neither Darksoft's file nor MAME
     behind them, not even loosely: 16,052 of 766,174 in Venture (2.1%) and 5,464 of 934,170 in HFTF (0.6%);
-    most are routines this revision has and the other does not.
+    most are routines this revision has and the other does not;
+  - with Darksoft's own Custom SH2 no-CD UltraBIOS (v1.0) as the BIOS of MAME's dead-cart machine (2nd Impact
+    NO CD: key 0, instructions decoded, data as stored) and the two `Custom SH2` banks loaded exactly as they
+    are flashed: the region menu comes up, both games start from it, SCREEN MODE sets to WIDE in the test
+    menu, and a 1P and a 2P fight each run 12,600 frames in WIDE. Darksoft's own Custom SH2 JoJo files boot
+    the same way. No script imitates the cart here, but it is still MAME's model of the CPU;
+  - the UltraBIOS itself, disassembled: the code that sets the two RAM bytes these revisions read (region at
+    0207F000, no-CD flag at 0207F004) is the same in the Custom SH2 and the Standard SH2 BIOS and does not
+    depend on the game. Up and down choose the region; starting with light punch leaves the no-CD flag at 0,
+    starting with medium punch sets it. The game is started through its vector table, with no check of its
+    data on the way.
 
-  What MAME cannot show: that a security cart behaves as MAME models it, and that Darksoft's other changes to
-  these two programs (region and no-CD setting read from RAM) work with a Custom SH2 board's BIOS as they do
-  in Darksoft's 3rd Strike Custom SH2 files, which read the same two RAM bytes.
+  What MAME cannot show: that a security cart behaves as MAME models it.
+- **The test menu's SIMM check (8-2) in the two JoJo games:** the game compares an 8-bit sum of each SIMM with
+  a table in the BIOS, not in the game. On MAME's dead-cart machine with the Custom SH2 UltraBIOS, SIMM1 shows
+  NG and SIMM2 OK, with Darksoft's own unpatched Custom SH2 JoJo files and with the patched ones alike. The
+  MAME sets this tool makes for the two JoJo games with a 3rd Strike BIOS show SIMM1 and SIMM2 as NG, with or
+  without the patch. The patch does not change either result and play is not affected. What a real board
+  shows was not checked.
 - Warzard on NORMAL: up to v1.2.x all text went through a copy in RAM in both modes, which cost CPU time every
   frame; a few effects are timed by the game's idle loop, so some frames differed from the unpatched game and
   scripted fights played out differently. Since v1.3.0 the game's own text code runs untouched on NORMAL and
@@ -434,8 +448,9 @@ what the unpatched game draws; the differences below show in WIDE, apart from th
 
 - **A SCREEN MODE item** (NORMAL / WIDE) on the game settings page of the test menu, in the English and the
   Japanese menus, saved with the game's other settings.
-- **The memory test still passes:** the checksum byte of each program SIMM is set so the SIMM's sum is what it
-  was.
+- **The memory test is not disturbed:** the checksum byte of each program SIMM is set so the SIMM's sum is what
+  it was. (The SIMM check of the two JoJo games has its own entry under
+  [Status and known issues](#status-and-known-issues).)
 - **Darksoft Custom SH2 files:** new instructions are stored encrypted the way Darksoft stores the rest of each
   bank, and so is any instruction of the game that only the patch runs and Darksoft's file stores plain (one
   in 3rd Strike; since v1.5.0). For the two JoJo games the whole Custom SH2 bank is written anew (since
@@ -545,8 +560,9 @@ by `tools/custom_map.py` from three sources:
   them as instructions.
 - **MAME**, as a check of the result: the patched Standard SH2 game was run with every instruction fetch and
   every data read of the program recorded, and again with the data reads returning what the new Custom SH2
-  file holds (which is how the game would see it on a security cart). See the numbers under
-  [Status and known issues](#status-and-known-issues).
+  file holds (which is how the game would see it on a security cart). A second check needs no such script:
+  MAME's dead-cart machine with Darksoft's Custom SH2 UltraBIOS, the two banks loaded as they are flashed.
+  See the numbers under [Status and known issues](#status-and-known-issues).
 
 `tools/check_custom.py` verifies each written bank: it must be the patched Standard SH2 program with exactly
 the map's halfwords encrypted, and each SIMM's byte sum must equal the Standard SH2 file's.
