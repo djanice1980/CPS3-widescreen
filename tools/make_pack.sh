@@ -107,6 +107,12 @@ open('$B/banks/bank1-custom.bin', 'wb').write(read_program_bank('$PACK/SIMM 1-2'
     cp "$B/banks/makoto-code.json" "$P/bank6-sfiii-makoto-fix-code.json"
     cp "$B/banks/4rd-wide.json" "$P/bank7-sfiii-4rd-strike.json"
     cp "$B/banks/4rd-code.json" "$P/bank7-sfiii-4rd-strike-code.json"
+
+    echo '== Custom SH2: stock instructions the patches bring to life that the pack stores plain'
+    for g in 0:bank0-sfiii-new-generation 1:bank1-warzard 5:bank5-sfiii-3rd-strike 6:bank6-sfiii-makoto-fix \
+             7:bank7-sfiii-4rd-strike; do
+        python3 "$ROOT/tools/custom_gaps.py" "$PACK" "${g%%:*}" "$P/${g#*:}.json" "$P/${g#*:}-code.json"
+    done
 fi
 [ -f "$P/bank5-sfiii-3rd-strike.json" ] || { echo "no prebuilt patches in $P: run with --build"; exit 1; }
 

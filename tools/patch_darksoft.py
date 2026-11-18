@@ -77,15 +77,43 @@ def stored_form(bank, runs, base, kind):
     return form, None
 
 
+def encrypt_stock_code(bank, spans, simm, root, bank_no):
+    """Darksoft's split of a program into instructions and data has gaps: a stock instruction nothing in the
+    stock game refers to can be stored plain in the Custom file. This encrypts the ones the patch brings to life
+    (its "stock_code" list, addresses only, from tools/custom_gaps.py) in an encrypted Custom bank. A halfword's
+    plain value is read from the Standard file of the same pack; the Custom bank must hold that value or its
+    encrypted form. Returns the number of halfwords."""
+    base = SIMM_BASE[simm]
+    mine = [(a, n) for a, n in spans if base <= a < base + 0x800000]
+    if not mine:
+        return 0
+    words = read_simm_words(*simm_paths(root, simm, 'Standard'))
+    per = len(words) // NBANK
+    std = words[bank_no * per:(bank_no + 1) * per].astype('>u4').tobytes()
+    done = 0
+    for addr, n in mine:
+        for a in range(addr, addr + n, 2):
+            off = a - base
+            s, m = int.from_bytes(std[off:off + 2], 'big'), mask16(a)
+            v = int.from_bytes(bank[off:off + 2], 'big')
+            if v not in (s, s ^ m):
+                sys.exit(f'Custom SIMM{simm} bank {bank_no}: {a:08X} holds {v:04X}, neither the Standard file\'s '
+                         f'{s:04X} nor its encrypted form: not the program this patch was made for; nothing written')
+            bank[off:off + 2] = (s ^ m).to_bytes(2, 'big')
+            done += 1
+    return done
+
+
 def patch_bank(bank, runs, base, form):
     for r in runs:
         addr, old, new = int(r['addr'], 16), bytes.fromhex(r['old']), bytes.fromhex(r['new'])
         off = addr - base
         code = code_halfwords(r)
         for k, (o, n) in enumerate(zip(halfwords(old), halfwords(new))):
-            if o == n:
+            inst = form == 'encrypted' and 2 * k in code
+            if o == n and not inst:
                 continue  # keep the image's own form of bytes the patch does not change
-            if form == 'encrypted' and 2 * k in code:
+            if inst:  # also where the new instruction equals the stock bytes: the image may hold those plain
                 n ^= mask16(addr + 2 * k)
             bank[off + 2 * k:off + 2 * k + 2] = n.to_bytes(2, 'big')
 
@@ -146,6 +174,11 @@ def main(argv=None):
     src = a.out if a.in_place else a.pack
     if not os.path.isdir(os.path.join(src, 'SIMM 1-2')):
         sys.exit(f'{src}: no "SIMM 1-2" folder (give the folder that holds "SIMM 1-2" and "SIMM 3-6")')
+    # stock instructions the patch brings to life; Darksoft's Custom file may store them plain (custom_gaps.py)
+    stock = [(int(x, 16), n) for x, n in patch.get('stock_code', [])]
+    if any(all(int(r['addr'], 16) >> 23 != x >> 23 for r in patch['runs']) for x, _ in stock):
+        sys.exit(f'{a.patch}: "stock_code" names a SIMM the patch has no runs in')
+    notes = []
 
     # read and patch everything in memory first; write only if every bank checks out
     out = []
@@ -173,6 +206,11 @@ def main(argv=None):
         form = 'encrypted' if any(f == 'encrypted' for *_, f, _b in loaded) else 'plain'
         for simm, u9, u10, words, per, bank, runs, _, before in loaded:
             patch_bank(bank, runs, SIMM_BASE[simm], form)
+            if kind == 'Custom' and form == 'encrypted':
+                n = encrypt_stock_code(bank, stock, simm, os.path.join(src, 'SIMM 1-2'), a.bank)
+                if n:
+                    notes.append(f'Custom SIMM{simm} bank {a.bank}: {n} stock instruction halfword(s) the patch '
+                                 'runs stored encrypted too')
             fix = SUM_FIX[simm] - SIMM_BASE[simm]
             bank[fix] = (bank[fix] + before - sum(bank)) % 256
             assert sum(bank) % 256 == before
@@ -199,6 +237,8 @@ def main(argv=None):
             continue
         note = {'plain': 'instructions plain', 'encrypted': 'instructions encrypted (key 0)'}[form]
         print(f'{kind} SIMM{simm} bank {a.bank}: {nruns} runs patched, {note}, byte sum kept at {before:02X}')
+    for line in notes:
+        print(line)
 
 
 if __name__ == '__main__':
