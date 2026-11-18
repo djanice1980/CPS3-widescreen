@@ -19,7 +19,7 @@ if not getattr(sys, 'frozen', False):
 import cps3ws  # noqa: E402
 
 APP = 'CPS3 Widescreen'
-VERSION = '1.3.0'
+VERSION = '1.4.0'
 REPO = 'https://github.com/djanice1980/CPS3-widescreen'
 ON_WINDOWS = sys.platform == 'win32'
 
@@ -100,7 +100,9 @@ are not touched.'''),
     ('Known issues', '''- Tested in MAME 0.289 only so far; not yet confirmed on a real CPS3 board or a MiSTer. Please \
 report results at the project page.
 - Some screens outside the fights (continue, game over, results) are still drawn 4:3 wide.
-- Stage objects at the edges of the wider view can appear a moment late.'''),
+- Stage objects at the edges of the wider view can appear a moment late.
+- 3rd Strike, Makoto Fix and 4rd Strike in widescreen: near the left end of the savanna stage a black strip up \
+to 4 pixels wide shows on the upper part of the left edge.'''),
 ]
 
 ABOUT = f'''{APP} {VERSION}

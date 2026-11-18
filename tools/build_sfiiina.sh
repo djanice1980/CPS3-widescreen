@@ -42,4 +42,4 @@ done
 echo '== port to bank 0'
 python3 -I "$ROOT/tools/ng_stock.py" sfn.bin tools "$BANK" "$OUT/stock.bin"
 python3 "$ROOT/tools/port_bank.py" "$BANK" sfiiina 06444000 06445000 "$OUT" --stock "$OUT/stock.bin" --map sfn.map \
-    --full '' --hooks "$ROOT/src/sfiiina/hooks.tsv" --unused 06443022-0646A892 | grep -v 'MESA\|pci id'
+    --full '' --hooks "$ROOT/src/sfiiina/hooks.tsv" --data "$ROOT/src/sfiiina/data.tsv" --unused 06443022-0646A892 | grep -v 'MESA\|pci id'

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check a widescreen link against the stock link and write the hooks into it.
 
-    hook.py <stock sf3.bin> <wide sf3w.bin> <wide sf3w.map> <hooks.tsv> <out prog image>
+    hook.py <stock sf3.bin> <wide sf3w.bin> <wide sf3w.map> <hooks.tsv> <out prog image> [<data.tsv>]
 
 The wide link adds sections (PWIDE, CWIDE) in space the stock program leaves empty. Everything else must be
 byte-identical to the stock link; the script stops if it is not. Then, for each line "original<TAB>replacement"
@@ -14,6 +14,9 @@ of hooks.tsv (C names), the start of the original routine is overwritten with a 
     .long  replacement
 
 r0 is a scratch register in the Hitachi SH calling convention, so the replacement sees the original's arguments.
+
+data.tsv lists 16-bit data words of the game to change in place: "symbol<TAB>byte offset<TAB>old<TAB>new". Each is
+written only where the old value is found.
 """
 import re
 import sys
@@ -38,6 +41,24 @@ def section_ranges(map_path, names):
     return out
 
 
+def data_words(path):
+    """[(symbol, byte offset, old, new)] of a data.tsv."""
+    out = []
+    for line in open(path):
+        line = line.split('#')[0].strip()
+        if line:
+            sym, off, old, new = line.split()
+            out.append((sym, int(off), int(old), int(new)))
+    return out
+
+
+def write_word(img, at, old, new, what):
+    have = int.from_bytes(img[at - BASE:at - BASE + 2], 'big', signed=True)
+    if have != old:
+        sys.exit(f'{what} at {at:08X} holds {have}, not {old}')
+    img[at - BASE:at - BASE + 2] = new.to_bytes(2, 'big', signed=True)
+
+
 def trampoline(at, target):
     code = bytes.fromhex('D001402B0009')
     if at % 4 == 0:
@@ -50,6 +71,7 @@ def trampoline(at, target):
 
 def main():
     stock_path, wide_path, map_path, hooks_path, out_path = sys.argv[1:6]
+    data_path = sys.argv[6] if len(sys.argv) > 6 else None
     stock = open(stock_path, 'rb').read()
     wide = bytearray(open(wide_path, 'rb').read())
     if len(stock) != len(wide):
@@ -84,6 +106,9 @@ def main():
               sys.exit(f'{orig} at {at:08X} is {nxt - at} bytes: too short for a {len(code)}-byte jump')
           wide[at - BASE:at - BASE + len(code)] = code
           print(f'hook {orig} {at:08X} -> {repl} {target:08X}')
+    for sym, off, old, new in data_words(data_path) if data_path else []:
+        write_word(wide, syms['_' + sym] + off, old, new, f'{sym}+{off}')
+        print(f'data {sym}+{off} {syms["_" + sym] + off:08X}: {old} -> {new}')
     open(out_path, 'wb').write(wide)
 
 

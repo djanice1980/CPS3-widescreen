@@ -3,7 +3,7 @@
 program, moved and edited) and write a patch for that bank.
 
     port_bank.py <bank prog image> <name> <wide addr> <const addr> <out dir>
-                 [--stock <prog> --map <map> --full <prog or ''> --hooks <tsv,...>]
+                 [--stock <prog> --map <map> --full <prog or ''> --hooks <tsv,...> --data <tsv or ''>]
 
 Run from the decomp directory after its wide objects and listings are built in obj/wide_src (by default, after
 tools/build_sfiii3.sh: 3rd Strike's stock.bin, sf3w.map, sf3w-hooked.bin and hooks). <bank prog image> is the
@@ -20,7 +20,8 @@ build and map are the stock program, and there is no full widescreen build to co
        agree on one value.
 3. Each hooked routine must be the stock one in the bank (its literal-pool words may differ only by the mapping),
    or the patch would throw away the bank's own change to it.
-4. Writes the trampolines and the module into the bank's image, the instruction ranges (for Custom SH2), and
+4. Writes the trampolines, the module and the changed data words (--data, as tools/hook.py: each must sit in an
+   aligned stretch and hold the old value) into the bank's image, the instruction ranges (for Custom SH2), and
    the patch: <out dir>/<name>-wide.json.
 """
 import bisect
@@ -33,7 +34,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'tools'))
 from code_ranges import listing_code, merge, module_ranges  # noqa: E402
-from hook import BASE, read_symbols, trampoline  # noqa: E402
+from hook import BASE, data_words, read_symbols, trampoline, write_word  # noqa: E402
 
 OBJDIR = 'obj/wide_src'
 SIZE = 0x1000000
@@ -185,6 +186,7 @@ def main():
     ap.add_argument('--map', default='sf3w.map')
     ap.add_argument('--full', default=f'{build}/sf3w-hooked.bin')
     ap.add_argument('--hooks', default=f'{ROOT}/src/sfiii3/hooks.tsv,{build}/hud_hooks.tsv')
+    ap.add_argument('--data', default=f'{ROOT}/src/sfiii3/data.tsv')
     # a range the program never uses although it is not empty (New Generation: bytes past its linked sections
     # that an earlier build left in the image), allowed to take the module
     ap.add_argument('--unused', default='')
@@ -266,6 +268,12 @@ def main():
         if why:
             problems.append(f'hook {orig} {at:08X} -> {t:08X}: the bank\'s routine is not the stock one: {why}')
         hook_sites[orig] = (at, t)
+    words = []
+    for sym, off, was, now in data_words(args.data) if args.data else []:
+        t = m.rom(syms['_' + sym] + off)
+        if t is None:
+            problems.append(f'data {sym}+{off}: not in an aligned stretch')
+        words.append((t, was, now, f'{sym}+{off}'))
     if problems:
         sys.exit('cannot port:\n  ' + '\n  '.join(problems))
     print(f'{len(hook_sites)} hooked routines are the stock ones in the bank')
@@ -278,6 +286,9 @@ def main():
         if any(target[lo - BASE:hi - BASE]) and not (ulo <= lo and hi <= uhi):
             sys.exit(f'{lo:08X}-{hi:08X} is not free in the bank')
         new[lo - BASE:hi - BASE] = img[lo - BASE:hi - BASE]
+    for t, was, now, what in words:
+        write_word(new, t, was, now, what)
+        print(f'data {what} {t:08X}: {was} -> {now}')
     wsyms = read_symbols(map_path)
     spans = []
     for orig, repl in hooks:

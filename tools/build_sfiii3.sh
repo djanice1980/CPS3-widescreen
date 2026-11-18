@@ -67,7 +67,8 @@ bin/rof2bin.exe -s=06000000 -e=07000000 -v=00 sf3w.abs 2>&1 | grep -i 'cannot\|e
 [ -f sf3w.bin ] || { echo 'rof2bin wrote no sf3w.bin'; exit 1; }
 
 echo '== hooks'
-python3 -I "$ROOT/tools/hook.py" "$OUT/stock.bin" sf3w.bin sf3w.map "$ROOT/src/sfiii3/hooks.tsv,$OUT/hud_hooks.tsv" "$OUT/sf3w-hooked.bin"
+python3 -I "$ROOT/tools/hook.py" "$OUT/stock.bin" sf3w.bin sf3w.map "$ROOT/src/sfiii3/hooks.tsv,$OUT/hud_hooks.tsv" "$OUT/sf3w-hooked.bin" \
+    "$ROOT/src/sfiii3/data.tsv"
 cp sf3w.map "$OUT/"
 
 echo '== MAME set'

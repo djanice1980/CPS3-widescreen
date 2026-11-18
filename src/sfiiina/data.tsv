@@ -1,0 +1,8 @@
+# Data of the game changed in place (as src/sfiii3/data.tsv; written by tools/port_bank.py).
+#
+# limit_tbl3[stage background][layer] = { left, right, wide left, wide right, y, wide y }. New Generation's wide
+# limits keep the view inside what 4:3 shows, but the wide screen's first column is one pixel further left, and on
+# background 10 (stage 6) the artwork has nothing there: at the left end of the stage the first screen column was
+# black on the top 30 lines. One pixel less travel hides it. Used only when SCREEN MODE is WIDE.
+# symbol	byte offset	old	new
+limit_tbl3	496	-182	-181

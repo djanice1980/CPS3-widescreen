@@ -1,0 +1,23 @@
+# Data of the game changed in place. tools/hook.py (3rd Strike) and tools/port_bank.py (Makoto Fix, 4rd Strike)
+# write each 16-bit word after checking that the old value is there.
+#
+# limit_tbl3[stage][layer] = { left, right, wide left, wide right, y, wide y }: how far a stage's view may travel.
+# Only layer 1's limits bind, and the wide ones are used only when SCREEN MODE is WIDE (in 4:3 the game copies
+# left/right over them), so these words change nothing on NORMAL. The game's own wide limits let the 496-pixel
+# view (position +/- 248) run past the end of some stages' artwork; these stop it where the artwork ends.
+# Measured in MAME 0.289 with both players walked to each end of every stage. A gap on a layer that scrolls
+# slower than layer 1 needs the limit moved by more than the gap's width; the right-hand values leave one spare
+# column, because MAME shows 495 of the 496 columns.
+#   stage 1 (subway, day) and stage 11 (subway, night): right, 6 black columns where the train ends
+#   stage 2 (castle roof): left, the tree layer was cut 7 pixels early; right, 9 black columns
+#   stage 16 (Chun-Li's): left, 26 columns with no artwork (it starts at x = 48)
+#   stage 19 (Russia, night): left, 40 black columns (artwork starts at x = 64)
+# Not fixed this way: stage 8 (savanna), left: 4 black columns on the backdrop, which moves a sixteenth as fast as
+# layer 1, so the limit would have to move 64 pixels.
+# symbol	byte offset	old	new
+limit_tbl3	54	708	696
+limit_tbl3	88	314	324
+limit_tbl3	90	708	688
+limit_tbl3	414	708	696
+limit_tbl3	592	270	296
+limit_tbl3	700	272	312

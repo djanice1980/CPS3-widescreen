@@ -43,6 +43,39 @@ What widescreen does:
 - In 3rd Strike, Makoto Fix and 4rd Strike, life and damage stay the same as in 4:3. (The game's own unfinished
   wide mode raises the life total, which also changes damage; the patch keeps the 4:3 value.)
 
+## Screenshots
+
+The same moment of the same scripted fight in each game, with SCREEN MODE on NORMAL (left) and on WIDE (right).
+The pictures are MAME 0.289 snapshots of the patched games, shown the way a 4:3 and a 16:9 display show them.
+
+**Street Fighter III: New Generation**
+
+![New Generation, NORMAL and WIDE](docs/screenshots/new-generation.png)
+
+**Warzard (Red Earth)**
+
+![Warzard, NORMAL and WIDE](docs/screenshots/warzard.png)
+
+**JoJo's Venture**
+
+![JoJo's Venture, NORMAL and WIDE](docs/screenshots/jojos-venture.png)
+
+**JoJo's Bizarre Adventure: Heritage for the Future**
+
+![JoJo HFTF, NORMAL and WIDE](docs/screenshots/jojo-hftf.png)
+
+**Street Fighter III 3rd Strike**
+
+![3rd Strike, NORMAL and WIDE](docs/screenshots/3rd-strike.png)
+
+**Street Fighter III 3rd Strike: Makoto Fix**
+
+![Makoto Fix, NORMAL and WIDE](docs/screenshots/makoto-fix.png)
+
+**Street Fighter III 4rd Strike**
+
+![4rd Strike, NORMAL and WIDE](docs/screenshots/4rd-strike.png)
+
 ## What you need
 
 - **The Darksoft CPS-3 pack**, `Darksoft CPS-3 2021-01-09.7z` or `Darksoft CPS-3 2021-04-02.7z` (or the folder
@@ -278,6 +311,15 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
   frame of a 9,000-frame scripted run that differed before (and its scheduler averages the same passes per
   frame, 338.3 against 338.4).
 - At the edges of the wider view, some stage objects can appear a moment late.
+- 3rd Strike, Makoto Fix and 4rd Strike in WIDE, the savanna stage (Elena's): within about 64 pixels of the
+  left end of the stage, a black strip up to 4 pixels wide shows on the upper part of the left edge. The
+  backdrop there ends 4 pixels short, and it scrolls a sixteenth as fast as the floor, so a scroll limit
+  cannot hide it the way it does on the other stages (see
+  [What the patch changes](#street-fighter-iii-3rd-strike-makoto-fix-and-4rd-strike)).
+- Stage ends in WIDE were checked in MAME by walking both players to each end: all 21 fight stages of 3rd
+  Strike, Makoto Fix and 4rd Strike, and all 19 stage backgrounds of New Generation. What that found is fixed
+  (see [What the patch changes](#what-the-patch-changes-in-each-game)), except the strip above. Warzard and
+  the two JoJo games were checked on their first stage only, which is clean.
 
 ## Building the patches from source
 
@@ -326,20 +368,99 @@ files and save a screenshot, without opening windows on your desktop. `PICK=zeni
 `app/test_linux.sh` also presses a real "Choose folder..." button and accepts the desktop chooser that opens. To run the app from source instead:
 `python3 app/cps3ws_app.py` (needs python3-tk and numpy, plus py7zr or 7z for .7z packs).
 
-## How it works (short version)
+## What the patch changes in each game
 
-- **3rd Strike, Makoto Fix, 4rd Strike:** 3rd Strike has a leftover, unfinished wide mode. This turns it on and
-  adds wide versions of the fight HUD routines, compiled from gibletto's byte-matching decompilation with the
-  original compiler. Makoto Fix and 4rd Strike are built from the same code, relinked to the addresses of their
-  own programs.
-- **New Generation:** it keeps its complete original wide mode; the patch adds the SCREEN MODE menu item.
-- **JoJo's Venture, JoJo's Bizarre Adventure, Warzard:** these have no wide mode at all. The patch widens the
-  display, shifts the camera, sprites and backgrounds, and in wide mode draws the whole text layer into RAM so
-  it can be centered on the wider screen: the games' text routines exist twice, as they are and drawing into
-  RAM, and a small dispatcher at each entry picks one by the screen mode. The code was written against the
-  games' machine code directly (there is no decompilation of these games).
+How each patched game differs from the game in the Darksoft pack. With SCREEN MODE on NORMAL every game draws
+what the unpatched game draws; the differences below show in WIDE, apart from the new menu item.
+
+### All seven games
+
+- **A SCREEN MODE item** (NORMAL / WIDE) on the game settings page of the test menu, in the English and the
+  Japanese menus, saved with the game's other settings.
+- **The memory test still passes:** the checksum byte of each program SIMM is set so the SIMM's sum is what it
+  was.
 - **Darksoft Custom SH2 files:** new instructions are stored encrypted the way Darksoft stores the rest of each
-  bank, and the checksum byte of each SIMM is kept unchanged so the board's memory test still passes.
+  bank.
+
+### Street Fighter III: New Generation
+
+New Generation still contains its complete original wide mode. Only its menu item was gone.
+
+- **Menu:** the GAME CONFIGURATION page is the game's own page again with SCREEN MODE as item 6 and EXIT as
+  item 7. The item uses the game's own routine and strings.
+- **One stage end (new in v1.4.0):** on stage 6, at the left end, the first screen column was black on the top
+  30 lines in WIDE. One scroll limit value is changed by one pixel so the view stops before it.
+- **Nothing else is changed.** The fight, the HUD, the other stage limits and the effects in WIDE are the
+  game's own.
+
+### Street Fighter III 3rd Strike, Makoto Fix and 4rd Strike
+
+3rd Strike has a leftover wide mode that no menu reaches and that was never finished. The patch turns it on and
+finishes the parts that were visibly wrong. The three programs are patched with the same code: it is compiled
+from gibletto's byte-matching decompilation with the original compiler, then relinked to the addresses of the
+Makoto Fix and 4rd Strike programs.
+
+- **Menu:** SCREEN MODE is item 8 of the GAME CONFIGURATION page and EXIT moves to item 9. 3rd Strike's
+  Japanese menu font no longer has the character needed for "wide", so the patch makes one from another glyph.
+- **Life bars and damage:** the leftover wide mode raises full life from 160 to 192 while the life bars are
+  still drawn for 160, so a bar does not move until a sixth of the life is gone, and damage is scaled
+  differently. The patch keeps 160, so life and damage in WIDE are the same as in 4:3.
+- **Fight HUD centered:** in the leftover wide mode the life bars, timer, stun gauges, names, portraits and
+  super art gauges stay in the left 384 pixels of the 496-pixel screen. The patch replaces 25 HUD routines
+  with copies that draw 7 text columns (56 pixels) further right. Score, win marks, combo counters and the
+  INSERT COIN text are left alone, because the game already places those by screen mode.
+- **Messages centered:** the same for the pictures in the middle of the screen (K.O., YOU WIN, YOU LOSE,
+  PERFECT, TIME OVER, DRAW GAME), the "here comes a new challenger" banner and the screen clear at the end of
+  a match.
+- **Stage ends (new in v1.4.0):** the game's own wide-mode scroll limits let the view go past the end of the
+  artwork on five stages, which showed as a blank block at the screen edge when the view reached that end.
+  Six limit values are corrected so the view stops where the artwork ends:
+
+  | Stage | End | What showed before |
+  |---|---|---|
+  | Chun-Li's | left | 26 pixels with no artwork, the lower half black |
+  | Russia, night | left | 40 black pixels, full height |
+  | Castle roof | right | 9 black pixels on the upper part |
+  | Castle roof | left | the tree cut off 7 pixels early |
+  | Subway, day and night | right | 6 black pixels where the train ends |
+
+  The game uses these values only in WIDE, so NORMAL is not affected. The unpatched game shows the same
+  blocks when its leftover wide mode is forced on (checked on Chun-Li's stage). In WIDE the view's travel
+  is shorter by 10 to 40 pixels at each corrected end; every one of these stages is still at least as wide
+  in WIDE as in 4:3.
+
+### JoJo's Venture and JoJo's Bizarre Adventure: Heritage for the Future
+
+These games have no wide mode. There is no decompilation of them, so the patch was written against the
+machine code, with the addresses found by tracing the games in MAME.
+
+- **Display:** WIDE switches the board to its 496-pixel screen mode, the one 3rd Strike uses.
+- **Sprites and backgrounds:** everything is moved through the game's own horizontal offset, the one its
+  screen shake uses. Outside fights the 4:3 picture sits in the middle of the wider screen. In a fight the
+  wider view follows the camera and stops at the stage edges, so the extra width shows stage and never what
+  lies past its end.
+- **HUD, menus and messages:** these are all on the text layer, which the hardware cannot shift right by the
+  needed 56 pixels. In WIDE the game's text routines run from copies that draw into a buffer in RAM, and once
+  a frame the buffer is copied to the screen 7 columns further right. A short dispatcher at each text routine
+  picks the original or the copy by the screen mode.
+- **Menu:** SCREEN MODE is added to the game settings list before EXIT. It is read at boot, so it takes
+  effect after a reset.
+- **Memory check:** when a SIMM fails the game halts on purpose; in WIDE the last results are now drawn before
+  that halt.
+- **Fights play as in 4:3:** the camera, the stage limits and the collisions are untouched. Only what is drawn
+  moves.
+
+### Warzard (Red Earth)
+
+Warzard has no wide mode either and is patched the same way as the JoJo games, with these differences.
+
+- **Where the code lives:** the patch's code is in program SIMM 2, which the 8 MB game does not use itself.
+- **Sprites and backgrounds:** the horizontal offset is changed only while the game writes the scroll
+  registers in the vertical blank, so the game's own logic never sees it.
+- **Text on NORMAL:** the game's own text code runs untouched (since v1.3.0); only WIDE uses the copy.
+- **Menu:** SCREEN MODE is on both the English and the Japanese settings page, and the width changes as soon
+  as the setting is saved. The Japanese font has no character for "wide" here either, so the patch makes one.
+- **Memory check:** each line appears as it is printed, in both modes.
 
 ## License
 
