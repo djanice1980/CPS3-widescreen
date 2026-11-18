@@ -34,15 +34,18 @@ import patch_darksoft  # noqa: E402
 ROOT = getattr(sys, '_MEIPASS', os.path.dirname(TOOLS))
 PATCHES = os.path.join(ROOT, 'patches')
 
-# (bank, patch, kinds patched, code ranges for the Custom check): the order make_pack.sh has always used
+# (bank, patch, kinds patched, code ranges for the Custom check, custom map): the order make_pack.sh has always
+# used. A custom map (tools/custom_map.py) is for a bank whose Custom file in the pack is another revision of the
+# game: its Custom image is written anew from the Standard program.
 BANKS = [
-    (0, 'bank0-sfiii-new-generation', 'both', 'bank0-sfiii-new-generation-code'),
-    (5, 'bank5-sfiii-3rd-strike', 'both', 'bank5-sfiii-3rd-strike-code'),
-    (6, 'bank6-sfiii-makoto-fix', 'both', 'bank6-sfiii-makoto-fix-code'),
-    (7, 'bank7-sfiii-4rd-strike', 'both', 'bank7-sfiii-4rd-strike-code'),
-    (4, 'bank4-jojos-bizarre-adventure', 'Standard', None),
-    (3, 'bank3-jojos-venture', 'Standard', None),
-    (1, 'bank1-warzard', 'both', 'bank1-warzard-code'),
+    (0, 'bank0-sfiii-new-generation', 'both', 'bank0-sfiii-new-generation-code', None),
+    (5, 'bank5-sfiii-3rd-strike', 'both', 'bank5-sfiii-3rd-strike-code', None),
+    (6, 'bank6-sfiii-makoto-fix', 'both', 'bank6-sfiii-makoto-fix-code', None),
+    (7, 'bank7-sfiii-4rd-strike', 'both', 'bank7-sfiii-4rd-strike-code', None),
+    (4, 'bank4-jojos-bizarre-adventure', 'both', 'bank4-jojos-bizarre-adventure-code',
+     'bank4-jojos-bizarre-adventure-custom-map'),
+    (3, 'bank3-jojos-venture', 'both', 'bank3-jojos-venture-code', 'bank3-jojos-venture-custom-map'),
+    (1, 'bank1-warzard', 'both', 'bank1-warzard-code', None),
 ]
 GAMES_NOTE = 'SFIII NG, 3rd Strike, Makoto Fix, 4rd Strike, JoJo HFTF, JoJo Venture, Warzard'
 FORMATS = ('darksoft', 'mame', 'mister')
@@ -305,17 +308,19 @@ def _make(pack_src, out, formats, roms, log, step, patches):
         log(describe_pack(pack))
 
         patched = os.path.join(work, 'patched')
-        for i, (bank, name, kind, _) in enumerate(BANKS):
+        for i, (bank, name, kind, _, cmap) in enumerate(BANKS):
             next_step()
             argv = [pack, os.path.join(patches, name + '.json'), str(bank), patched]
             argv += (['--in-place'] if i else []) + (['--kind', kind] if kind != 'both' else [])
+            argv += ['--custom-map', os.path.join(patches, cmap + '.json')] if cmap else []
             call(patch_darksoft.main, argv, log, f'Bank {bank}')
 
         next_step()
-        for bank, _, kind, code in BANKS:
+        for bank, _, kind, code, cmap in BANKS:
             if code:
-                call(check_custom.main, [pack, patched, str(bank), os.path.join(patches, code + '.json')], log,
-                     f'Custom SH2 check, bank {bank}')
+                argv = [pack, patched, str(bank), os.path.join(patches, code + '.json')]
+                argv += [os.path.join(patches, cmap + '.json')] if cmap else []
+                call(check_custom.main, argv, log, f'Custom SH2 check, bank {bank}')
 
         moves = []  # (made in the work folder, its place in out)
         if 'darksoft' in formats:

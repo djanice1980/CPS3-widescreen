@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Check a patched Custom SH2 bank against the patched Standard one and the pack it came from.
 
-    check_custom.py <original pack dir> <patched pack dir> <bank> <code ranges .json>
+    check_custom.py <original pack dir> <patched pack dir> <bank> <code ranges .json> [<custom map .json>]
 
 Rebuilds the Custom image the patch should give, independently of patch_darksoft.py: every halfword the
 patched Standard image changed is expected encrypted (key 0) if the compiler's listing says it is an instruction
 (<code ranges .json>, from tools/code_ranges.py) and the bank stores instructions encrypted, plain otherwise;
 every other halfword must be the original Custom image's, except the memory-test sum byte. Then decrypts the
 patched Custom image with that classification and compares it with the patched Standard image.
+
+With a custom map (tools/custom_map.py; the two JoJo banks, whose Custom image in the pack is another revision):
+the patched Custom image must be the patched Standard program with exactly these halfwords XORed with the key-0
+mask: the map's instructions where the patch changed nothing, and the listing's where it did. The original
+Standard bank must be the program the map names, and each SIMM's byte sum must be the Standard file's.
 """
+import hashlib
 import json
 import os
 import sys
@@ -16,6 +22,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import custom_map  # noqa: E402
 from cps3crypt import mask_table  # noqa: E402
 from darksoft import read_program_bank  # noqa: E402
 
@@ -23,9 +30,46 @@ BASE = 0x06000000
 SUM_FIX = [0x067FEE06, 0x06FFEE06]  # the halfwords holding the sum bytes
 
 
+def byte_sums(img):
+    half = len(img) // 2
+    return [sum(img[s * half:(s + 1) * half].astype('>u2').tobytes()) % 256 for s in (0, 1)]
+
+
+def check_rebuilt(os_, ps, pc, m, code, sumfix, bank, cmap):
+    """A Custom image written anew from the Standard program (patch_darksoft.py --custom-map)."""
+    if hashlib.sha256(os_.astype('>u2').tobytes()).hexdigest() != cmap['standard_sha256']:
+        sys.exit(f'bank {bank}: the Standard bank is not the program the custom map was made for')
+    changed = ps != os_
+    inst = cmap['inst'].copy()
+    inst[changed] = code[changed]
+    lo, hi = np.nonzero(inst)[0][[0, -1]]
+    expect = ps.copy()
+    expect[inst] ^= m[inst]
+    bad = (pc != expect) & ~sumfix
+    print(f'bank {bank}: Custom image written from the Standard program; {int(inst.sum())} instruction halfwords '
+          f'({int((changed & inst).sum())} of the {int(changed.sum())} the patch changed), code '
+          f'{BASE + 2 * int(lo):08X}-{BASE + 2 * int(hi) + 1:08X}')
+    if bad.any():
+        idx = np.where(bad)[0][:8]
+        sys.exit('MISMATCH at ' + ', '.join(f'{BASE + 2 * i:08X} (has {pc[i]:04X}, expected {expect[i]:04X})'
+                                             for i in idx))
+    # nothing outside the map may be encrypted, nothing inside it plain (a halfword whose mask is 0 has one form)
+    plain_inst = inst & (pc == ps) & (m != 0)
+    enc_data = ~inst & (pc != ps) & ~sumfix
+    if plain_inst.any() or enc_data.any():
+        sys.exit(f'{int(plain_inst.sum())} instructions stored plain, {int(enc_data.sum())} data halfwords changed')
+    ss, cs = byte_sums(ps), byte_sums(pc)
+    print('  ' + '  '.join(f'{name} SIMM{k + 1} byte sum {v[k]:02X}' for name, v in (('Standard', ss), ('Custom', cs))
+                           for k in (0, 1)))
+    if ss != cs:
+        sys.exit('the Custom image\'s byte sums are not the Standard image\'s')
+    print('OK: Custom = the patched Standard program with its instructions encrypted (key 0); decrypts back to it')
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     pack, patched, bank, code_path = argv[0], argv[1], int(argv[2]), argv[3]
+    map_path = argv[4] if len(argv) > 4 else None
     ld = lambda p, k: np.frombuffer(read_program_bank(os.path.join(p, 'SIMM 1-2'), bank, k), dtype='>u2')
     os_, oc = ld(pack, 'Standard'), ld(pack, 'Custom')
     ps, pc = ld(patched, 'Standard'), ld(patched, 'Custom')
@@ -36,6 +80,8 @@ def main(argv=None):
         code[i:i + n // 2] = True
     sumfix = np.zeros(len(os_), bool)
     sumfix[[(a - BASE) // 2 for a in SUM_FIX]] = True
+    if map_path:
+        return check_rebuilt(os_, ps, pc, m, code, sumfix, bank, custom_map.load(map_path))
 
     encrypted_bank = bool(((oc == (os_ ^ m)) & (oc != os_)).any())
     changed = ps != os_

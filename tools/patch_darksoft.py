@@ -2,7 +2,7 @@
 """Apply a widescreen patch to one game bank of a Darksoft CPS-3 UltraSIMM pack.
 
     patch_darksoft.py <pack dir> <patch .json> <bank 0-7> <out dir> [--kind Standard|Custom|both]
-                      [--in-place]
+                      [--in-place] [--custom-map <map .json>]
 
 <pack dir> holds "SIMM 1-2" and "SIMM 3-6" as the Darksoft pack has them. <out dir> gets a copy of the pack with
 the program SIMM files (SIMM1/SIMM2, U9 and U10) of the chosen kind(s) patched; the graphics SIMMs are copied as
@@ -18,8 +18,16 @@ Custom SH2 images (for an original security cart, its key reset to 0) store each
 the key-0 mask of its address and data plain. The patch lists which of its new bytes are instructions (from the
 compiler's listings, tools/code_ranges.py); those are stored encrypted, the rest plain. A bank whose Custom image
 Darksoft stored unencrypted (4rd Strike's is the same file as its Standard one) is patched the same way, plain.
+
+--custom-map is for a bank whose Custom image is not the program the patch was made for (Darksoft's Custom files
+of the two JoJo games hold another revision): the bank's Custom image is written anew from its Standard program,
+patched, with every instruction halfword encrypted. Which halfwords of the Standard program are instructions is
+what the map says (tools/custom_map.py); the map names the program it describes by its SHA-256, and any other
+program is refused. The new image's byte sums are the Standard image's, as Darksoft has them for the banks whose
+Custom file is the Standard program.
 """
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -28,6 +36,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import custom_map  # noqa: E402
 from cps3crypt import mask16  # noqa: E402
 from darksoft import NBANK, read_simm_words, simm_paths, split_simm_words  # noqa: E402
 
@@ -81,6 +90,44 @@ def patch_bank(bank, runs, base, form):
             bank[off + 2 * k:off + 2 * k + 2] = n.to_bytes(2, 'big')
 
 
+def rebuild_custom(src, patch, bank_no, cmap):
+    """The bank's Custom image made from its Standard program: patched, then every instruction halfword (the
+    map's, and the patch's own) XORed with the key-0 mask. Returns the entries main() writes."""
+    root = os.path.join(src, 'SIMM 1-2')
+    banks, sums = {}, {}
+    for simm in (1, 2):
+        words = read_simm_words(*simm_paths(root, simm, 'Standard'))
+        per = len(words) // NBANK
+        banks[simm] = bytearray(words[bank_no * per:(bank_no + 1) * per].astype('>u4').tobytes())
+        sums[simm] = sum(banks[simm]) % 256
+    if hashlib.sha256(bytes(banks[1] + banks[2])).hexdigest() != cmap['standard_sha256']:
+        sys.exit(f'Standard bank {bank_no} is not the program the Custom SH2 map was made for; nothing written')
+    inst = custom_map.patched_instructions(cmap['inst'], patch['runs'])
+    half = len(inst) // 2
+    out = []
+    for simm in (1, 2):
+        base = SIMM_BASE[simm]
+        runs = [r for r in patch['runs'] if base <= int(r['addr'], 16) < base + 0x800000]
+        form, err = stored_form(banks[simm], runs, base, 'Standard')
+        if err:
+            sys.exit(f'Standard SIMM{simm} bank {bank_no}: {err}: not the program this patch was made for; '
+                     'nothing written')
+        patch_bank(banks[simm], runs, base, 'plain')
+        sel = inst[(simm - 1) * half:simm * half]
+        image = bytearray(custom_map.encrypt(banks[simm], sel, base))
+        fix = SUM_FIX[simm] - base
+        if sel[fix // 2]:
+            sys.exit('the map marks the sum byte as an instruction')
+        image[fix] = (image[fix] + sums[simm] - sum(image)) % 256
+        assert sum(image) % 256 == sums[simm]
+        u9, u10 = simm_paths(root, simm, 'Custom')
+        words = read_simm_words(u9, u10).copy()
+        per = len(words) // NBANK
+        words[bank_no * per:(bank_no + 1) * per] = np.frombuffer(bytes(image), dtype='>u4').astype(np.uint32)
+        out.append(('Custom', simm, u9, u10, words, len(runs), int(sel.sum()), sums[simm]))
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('pack')
@@ -89,6 +136,7 @@ def main(argv=None):
     ap.add_argument('out')
     ap.add_argument('--kind', default='both', choices=['Standard', 'Custom', 'both'])
     ap.add_argument('--in-place', action='store_true')
+    ap.add_argument('--custom-map')
     a = ap.parse_args(argv)
     patch = json.load(open(a.patch))
     kinds = ['Standard', 'Custom'] if a.kind == 'both' else [a.kind]
@@ -102,6 +150,9 @@ def main(argv=None):
     # read and patch everything in memory first; write only if every bank checks out
     out = []
     for kind in kinds:
+        if kind == 'Custom' and a.custom_map:
+            out += rebuild_custom(src, patch, a.bank, custom_map.load(a.custom_map))
+            continue
         loaded = []
         for simm in (1, 2):
             runs = [r for r in patch['runs'] if SIMM_BASE[simm] <= int(r['addr'], 16) < SIMM_BASE[simm] + 0x800000]
@@ -142,6 +193,10 @@ def main(argv=None):
         b9, b10 = split_simm_words(words)
         open(u9, 'wb').write(b9)
         open(u10, 'wb').write(b10)
+        if isinstance(form, int):
+            print(f'{kind} SIMM{simm} bank {a.bank}: written anew from the patched Standard program, {form} '
+                  f'instruction halfwords encrypted (key 0), byte sum {before:02X} as the Standard file')
+            continue
         note = {'plain': 'instructions plain', 'encrypted': 'instructions encrypted (key 0)'}[form]
         print(f'{kind} SIMM{simm} bank {a.bank}: {nruns} runs patched, {note}, byte sum kept at {before:02X}')
 
