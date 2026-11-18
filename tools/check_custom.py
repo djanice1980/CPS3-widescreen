@@ -13,7 +13,8 @@ patched Custom image with that classification and compares it with the patched S
 
 With a custom map (tools/custom_map.py; the two JoJo banks, whose Custom image in the pack is another revision):
 the patched Custom image must be the patched Standard program with exactly these halfwords XORed with the key-0
-mask: the map's instructions where the patch changed nothing, and the listing's where it did. The original
+mask: the listing's instructions (changed or not), the map's among the halfwords the patch left as they were,
+and none of the other halfwords it changed. The original
 Standard bank must be the program the map names, and each SIMM's byte sum must be the Standard file's.
 """
 import hashlib
@@ -44,6 +45,7 @@ def check_rebuilt(os_, ps, pc, m, code, sumfix, bank, cmap):
     changed = ps != os_
     inst = cmap['inst'].copy()
     inst[changed] = code[changed]
+    inst |= code            # an instruction of the patch that equals the stock bytes at its address is one too
     lo, hi = np.nonzero(inst)[0][[0, -1]]
     expect = ps.copy()
     expect[inst] ^= m[inst]

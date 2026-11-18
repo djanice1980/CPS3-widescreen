@@ -36,8 +36,8 @@ Bank 2 (2nd Impact) is left as it is: it already has a widescreen option of its 
 
 (*) Darksoft's bank 3 and 4 Custom SH2 files hold different revisions of the two JoJo games, which the patch
 does not fit. The patched pack replaces those two Custom SH2 banks with the revision of the Standard SH2 files,
-patched and stored the way a security cart needs it. This is new, was checked in MAME only and has never run on
-a board: see [JoJo on a Custom SH2 board](#jojo-on-a-custom-sh2-board).
+patched and stored the way a security cart needs it. This is new in v1.5.0, was checked in MAME only and has
+never run on a board: see [JoJo on a Custom SH2 board](#jojo-on-a-custom-sh2-board).
 
 What widescreen does:
 
@@ -313,19 +313,31 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
   game ran the CD-ROM drive scan the flag exists to skip. Fixed in v1.2.0: the variables moved to 0207C000, and
   with the two bytes set as a Darksoft board has them the patched boot is identical to the unpatched one in
   MAME. It is still not confirmed on hardware.
-- **JoJo's Venture and JoJo HFTF on a Custom SH2 board: never run on hardware.** Their Custom SH2 banks are
-  written anew from the Standard SH2 program (see
+- **3rd Strike on a Custom SH2 board, up to v1.4.1:** the SCREEN MODE item calls one routine of the game
+  (060A3F1A) whose first instruction Darksoft's Custom SH2 file stores unencrypted, because nothing in the
+  unpatched game refers to it. Run in MAME the way a security cart runs the file, the settings page lost its
+  cursor and SCREEN MODE could not be changed, so WIDE could not be turned on. Fixed in v1.5.0: that
+  instruction is stored encrypted, and the build now looks in every bank for instructions of the game that
+  only the patch runs. Two instructions of the Warzard patch that happened to equal the bytes already at their
+  address were left unencrypted in the same way (no test run reached them); also fixed. Standard SH2 boards
+  and Makoto Fix were not affected. Like everything else here this was checked in MAME, not on a board.
+- **JoJo's Venture and JoJo HFTF on a Custom SH2 board (new in v1.5.0): never run on hardware.** Their Custom
+  SH2 banks are written anew from the Standard SH2 program (see
   [JoJo on a Custom SH2 board](#jojo-on-a-custom-sh2-board)), which rests on knowing which halfwords are
   instructions. What was checked, in MAME 0.289 with scripted runs of the patched games (attract mode, 1P and
   2P fights, the test menu with the memory test, NORMAL and WIDE):
   - every halfword the CPU fetched as an instruction is stored encrypted (118,357 in Venture, 129,507 in
-    HFTF), and every halfword it read as data is stored plain, with one exception that every version of these
+    HFTF; counted with the v1.4.0 patch, before v1.4.1 changed one routine of it), and every halfword it read
+    as data is stored plain, with one exception that every version of these
     games has: the task switch loads SR and GBR for a new task from bytes 4 to 11 of the task's own first
     routine, so those 8 halfwords per game are both run and read. The unpatched game already gets arbitrary
     values there (interrupt level 0 for one task, 15 for another), and for HFTF the new file gives the same
     values as Darksoft's own Custom SH2 file;
-  - run with the data reads returning what the new Custom SH2 file holds, both games gave the same picture as
-    the plain game on all 2,576 compared frames (16 runs per game, one frame in 100);
+  - run the way a security cart runs the new Custom SH2 file (every fetch decoded with the mask of its
+    address, every data read as stored), both games gave the same picture as the plain game on all 1,288
+    compared frames (this version's files, 8 runs per game: attract mode, a 1P and a 2P fight and the settings
+    page, NORMAL and WIDE; one frame in 100), and no fetch was decoded wrongly. Earlier builds of the same
+    images gave 2,576 of 2,576 with the data reads alone;
   - those runs reach about a fifth of each program's code. For the rest the map rests on the code-flow
     analysis and on Darksoft's file of the other revision. Halfwords with neither Darksoft's file nor MAME
     behind them, not even loosely: 16,052 of 766,174 in Venture (2.1%) and 5,464 of 934,170 in HFTF (0.6%);
@@ -411,8 +423,9 @@ what the unpatched game draws; the differences below show in WIDE, apart from th
 - **The memory test still passes:** the checksum byte of each program SIMM is set so the SIMM's sum is what it
   was.
 - **Darksoft Custom SH2 files:** new instructions are stored encrypted the way Darksoft stores the rest of each
-  bank. For the two JoJo games the whole Custom SH2 bank is written anew (see
-  [JoJo on a Custom SH2 board](#jojo-on-a-custom-sh2-board)).
+  bank, and so is any instruction of the game that only the patch runs and Darksoft's file stores plain (one
+  in 3rd Strike; since v1.5.0). For the two JoJo games the whole Custom SH2 bank is written anew (since
+  v1.5.0, see [JoJo on a Custom SH2 board](#jojo-on-a-custom-sh2-board)).
 
 ### Street Fighter III: New Generation
 
@@ -510,8 +523,12 @@ by `tools/custom_map.py` from three sources:
   of Warzard, and marks 301, 183 and 326 more that Darksoft stores plain (code nothing refers to).
 - **Darksoft's own Custom SH2 file of the other revision**, wherever the two revisions hold the same code at
   shifted addresses: it has 97% (Venture) and 99.6% (HFTF) of the map's instructions as instructions and none
-  of its literal pools and switch tables as instructions. Where the code flow marks an unreferenced stretch that Darksoft stores
-  plain, the map follows Darksoft.
+  of its literal pools and switch tables as instructions. Where the code flow marks an unreferenced stretch
+  that Darksoft stores plain, the map follows Darksoft, halfword by halfword; a few routines nothing refers
+  to are therefore stored part encrypted, part plain. The two disagree outright in one place: 1,875 halfwords
+  at the end of Venture's code (061755F0-06176628, the C runtime library). The code flow reaches them and
+  Darksoft's file stores them plain, although its own encrypted code holds pointers into them. The map has
+  them as instructions.
 - **MAME**, as a check of the result: the patched Standard SH2 game was run with every instruction fetch and
   every data read of the program recorded, and again with the data reads returning what the new Custom SH2
   file holds (which is how the game would see it on a security cart). See the numbers under

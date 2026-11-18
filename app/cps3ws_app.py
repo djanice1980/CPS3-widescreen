@@ -19,7 +19,7 @@ if not getattr(sys, 'frozen', False):
 import cps3ws  # noqa: E402
 
 APP = 'CPS3 Widescreen'
-VERSION = '1.4.1'
+VERSION = '1.5.0'
 REPO = 'https://github.com/djanice1980/CPS3-widescreen'
 ON_WINDOWS = sys.platform == 'win32'
 

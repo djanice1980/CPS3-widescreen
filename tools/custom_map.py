@@ -85,16 +85,20 @@ def load(path):
 
 
 def patched_instructions(inst, runs, base=BASE):
-    """The map of the patched program: a halfword the patch changes is an instruction if the patch says so (its
-    'code' ranges, from the compiler's listing and the map of the code it copies); the others keep the stock
+    """The map of the patched program. A halfword the patch lists as an instruction (its 'code' ranges, from the
+    compiler's listing and the map of the code it copies) is one, also where its value equals the stock bytes at
+    that address: the stock program may have data there. A halfword the patch changes and does not list is data.
+    The others (stock bytes between the changed ones of a run, and everything outside the runs) keep the stock
     program's split."""
     out = inst.copy()
     for r in runs:
         addr, old, new = int(r['addr'], 16), bytes.fromhex(r['old']), bytes.fromhex(r['new'])
         code = {o + k for o, n in r['code'] for k in range(0, n, 2)}
         for k in range(0, len(new), 2):
-            if old[k:k + 2] != new[k:k + 2]:
-                out[(addr + k - base) // 2] = k in code
+            if k in code:
+                out[(addr + k - base) // 2] = True
+            elif old[k:k + 2] != new[k:k + 2]:
+                out[(addr + k - base) // 2] = False
     return out
 
 
