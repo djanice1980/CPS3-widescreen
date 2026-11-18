@@ -67,6 +67,7 @@ G = dict(
                 STAGE=0x020606E7,       # stage number (camera limits index)
                 CAM_LIMITS=0x066F3E74,  # per stage: s16 camera x min, max (10 stages)
                 CAMERA=0x0611B208,      # fight camera step
+                SET_LAYER=0x06005508,   # set a layer's next x and y (layer, x, y)
                 SCROLL=0x060055FC,      # vertical blank: layer and sprite scroll registers
                 SET_MODE=0x06004484,
                 GSCROLL=0x06004DB8,     # vertical blank: all 8 sprite scroll registers
@@ -107,6 +108,8 @@ JP = dict(sukuriin_moodo=[0x12B0, 0x1298, 0x1310, 0x13C8, 0x131C, 0x1304, 0x13C8
 POINTERS = {
     **{lit: (0x0611B208, '_wide_camera') for lit in (0x0611D388, 0x0611E648, 0x0611FB80, 0x06120F18, 0x06122274,
                                                      0x061232DC, 0x06124644, 0x0612655C)},
+    # the fight scene's own call that places the layers (every stage, the versus and bonus stages too)
+    0x061198F8: (0x06005508, '_wide_set_layer'),
     0x0600247C: (0x060055FC, '_wide_scroll'),
     0x06002464: (0x06004DB8, '_wide_gscroll'),  # its only caller (the vertical blank, before 0600247C's)
     **{lit: (0x06004484, '_wide_set_screen_mode') for lit in (0x060017F4, 0x06002274, 0x06010790, 0x06010CFC,

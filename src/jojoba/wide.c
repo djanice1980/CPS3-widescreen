@@ -77,6 +77,30 @@ s32 wide_camera(s32 a, s32 b, s32 c, s32 d) {
     return r;
 }
 
+/*
+ * Stage 17 (the bridge) draws its background only in a window around the 384-pixel view, from 64 pixels left of the
+ * camera to about 458 right of it (MAME: the background ended there at every camera position, where every other
+ * stage is drawn end to end). The centered 56 fits in that window; 0 at the left end of the stage and 112 at the
+ * right end did not, and left a black block 31 and 48 pixels wide at the far edge of the screen. So on this stage
+ * the shift stays inside the window, and at the stage's ends the view shows that much of what the game draws past
+ * the 4:3 view's edge.
+ */
+#define BRIDGE_STAGE    17
+#define BRIDGE_MIN      40      /* view's right edge at camera + 456 */
+#define BRIDGE_MAX      64      /* view's left edge at camera - 64 */
+
+static s16 bridge_shift(s32 s) {
+    if (STAGE_NO == BRIDGE_STAGE) {
+        if (s < BRIDGE_MIN) {
+            s = BRIDGE_MIN;
+        }
+        if (s > BRIDGE_MAX) {
+            s = BRIDGE_MAX;
+        }
+    }
+    return s;
+}
+
 /* how far right sprites and background are drawn */
 static s16 world_shift(void) {
     s32 cam, lo, hi, view;
@@ -96,7 +120,7 @@ static s16 world_shift(void) {
             view = hi;
         }
     }
-    return cam - view;
+    return bridge_shift(cam - view);
 }
 
 static void shift_world(void) {

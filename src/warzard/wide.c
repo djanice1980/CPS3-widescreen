@@ -67,12 +67,35 @@ static void text_copy(void);
 #define ORIG_SET_MODE ((method)G_SET_MODE)
 #define ORIG_GSCROLL ((method)G_GSCROLL)
 
-/* the fight camera's step (all stages): run it, note that the camera is live */
+/* the fight camera's step (stages 0 to 7): run it, note that the camera is live */
 s32 wide_camera(s32 a, s32 b, s32 c, s32 d) {
     s32 r = ORIG_CAMERA(a, b, c, d);
     CAM_LIVE = 4;
     return r;
 }
+
+/*
+ * The fight scene's call that places the layers each frame. Stages 8 and 9 do not use the camera step above, so
+ * without this their view was never held at the stage's ends: it stayed centered on the 384-pixel view and ran
+ * 56 pixels past each end. Title, menus and the other scenes place their layers through other calls.
+ */
+#define ORIG_SET_LAYER ((method)G_SET_LAYER)
+s32 wide_set_layer(s32 layer, s32 x, s32 y, s32 d) {
+    if (layer == 0) {
+        CAM_LIVE = 4;
+    }
+    return ORIG_SET_LAYER(layer, x, y, d);
+}
+
+/*
+ * Stage 9 (the bonus stage with the statue) is the one stage whose camera never reaches the limits in the table:
+ * with two fighters forced onto it in MAME it stopped at 224 and 530, where the table says 64 and 576. Its main
+ * layer's artwork ends at x = 942, short of the 960 that the table's right limit stands for, and past that the
+ * tile map wraps round to the stage's left end: at the camera's right stop the wide view showed a 27-pixel slice
+ * of the left wall on the right edge of the screen. So the view stops where the artwork does.
+ */
+#define BONUS_STAGE     9
+#define BONUS_VIEW_MAX  440     /* view's right edge at 936 */
 
 /* how far right sprites and background are drawn */
 static s16 world_shift(void) {
@@ -88,6 +111,9 @@ static s16 world_shift(void) {
     cam = LAYER0_X;
     lo = CAM_LIMITS[st * 2];
     hi = CAM_LIMITS[st * 2 + 1] - 2 * HALF;
+    if (st == BONUS_STAGE && hi > BONUS_VIEW_MAX) {
+        hi = BONUS_VIEW_MAX;
+    }
     view = cam - HALF;
     if (hi >= lo) {
         if (view < lo) {
@@ -97,7 +123,15 @@ static s16 world_shift(void) {
             view = hi;
         }
     }
-    return cam - view;
+    /* a scene can hold the camera outside its fight limits: the 384-pixel view stays on the screen whatever it does */
+    view = cam - view;
+    if (view < 0) {
+        view = 0;
+    }
+    if (view > 2 * HALF) {
+        view = 2 * HALF;
+    }
+    return view;
 }
 
 /*
@@ -115,12 +149,36 @@ s32 wide_gscroll(s32 a, s32 b, s32 c, s32 d) {
     return r;
 }
 
+/*
+ * Background layers that never scroll, per stage (bit n: layer n; layer 0 is the main one, the camera). Their x was
+ * the same at both ends of every stage (MAME, both players walked to each end). Such a backdrop is drawn for the
+ * 384-pixel view only: on stage 2 (the ice stage) the sky is one 512-pixel page shown from its column 64, so it has
+ * 64 spare pixels a side. Slid by the world shift like the floor (0 at the left end of a stage, 112 at the right
+ * end) it ran out of picture, a black block up to 48 pixels wide at the far edge of the screen. A backdrop that does
+ * not move with the camera must not move with the world shift either: it gets the centered 56.
+ */
+static const u8 still_layers[STAGES] = {
+    0x00, 0x00, 0x04, 0x00, 0x04, 0x06, 0x04, 0x04, 0x00, 0x04,
+};
+#define LAYER_X(n)  (*(volatile s16*)(G_LAYER0_X + 16 * (n)))  /* x the scroll writer is about to publish */
+
 /* the vertical blank's layer scroll register writer: run it with the world shift in the global offset */
 s32 wide_scroll(s32 a, s32 b, s32 c, s32 d) {
     s32 r;
     s16 s = 0;
     if (WIDE_ON) {
         s = world_shift();
+        if (s != HALF && STAGE < STAGES) {
+            /* the writer adds the global offset to every layer: take the difference out of the still ones. It
+               latches each layer's next x over this one as it goes, so there is nothing to put back. */
+            u8 still = still_layers[STAGE];
+            if (still & 2) {
+                LAYER_X(1) += s - HALF;
+            }
+            if (still & 4) {
+                LAYER_X(2) += s - HALF;
+            }
+        }
     }
     SHIFT_NOW = s;
     SCREEN_X -= s;

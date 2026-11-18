@@ -311,15 +311,16 @@ The MRAs use the same header, ROM order and interleave as Jotego's published CPS
   frame of a 9,000-frame scripted run that differed before (and its scheduler averages the same passes per
   frame, 338.3 against 338.4).
 - At the edges of the wider view, some stage objects can appear a moment late.
-- 3rd Strike, Makoto Fix and 4rd Strike in WIDE, the savanna stage (Elena's): within about 64 pixels of the
-  left end of the stage, a black strip up to 4 pixels wide shows on the upper part of the left edge. The
-  backdrop there ends 4 pixels short, and it scrolls a sixteenth as fast as the floor, so a scroll limit
-  cannot hide it the way it does on the other stages (see
-  [What the patch changes](#street-fighter-iii-3rd-strike-makoto-fix-and-4rd-strike)).
-- Stage ends in WIDE were checked in MAME by walking both players to each end: all 21 fight stages of 3rd
-  Strike, Makoto Fix and 4rd Strike, and all 19 stage backgrounds of New Generation. What that found is fixed
-  (see [What the patch changes](#what-the-patch-changes-in-each-game)), except the strip above. Warzard and
-  the two JoJo games were checked on their first stage only, which is clean.
+- Stage ends in WIDE were checked in MAME by walking both players to each end of every stage: 3rd Strike,
+  Makoto Fix and 4rd Strike (21 stages each), New Generation (19 stage backgrounds), Warzard (10), JoJo HFTF
+  (37 stage numbers) and JoJo's Venture (30). What that found is fixed (see
+  [What the patch changes](#what-the-patch-changes-in-each-game)). 3rd Strike, New Generation, Warzard and
+  JoJo HFTF were also looked at zoomed in; Makoto Fix, 4rd Strike and JoJo's Venture, which share their
+  stages with those, were checked by automatic scans for black blocks. Warzard's stages were forced in a
+  two-player match, which is not how the game reaches all of them.
+- JoJo's Venture and JoJo HFTF in WIDE, the bridge stage: at the two ends of the stage the fighters stop 40
+  to 48 pixels short of the screen edge, because the picture cannot slide all the way to the stage end there
+  (see the same section).
 
 ## Building the patches from source
 
@@ -424,6 +425,10 @@ Makoto Fix and 4rd Strike programs.
   | Castle roof | left | the tree cut off 7 pixels early |
   | Subway, day and night | right | 6 black pixels where the train ends |
 
+  On the savanna stage (Elena's) the backdrop itself was 4 pixels short at the left end, which a scroll limit
+  cannot hide: the backdrop scrolls a sixteenth as fast as the floor. Since v1.4.1 the routine that places it
+  holds it still for the last stretch in WIDE.
+
   The game uses these values only in WIDE, so NORMAL is not affected. The unpatched game shows the same
   blocks when its leftover wide mode is forced on (checked on Chun-Li's stage). In WIDE the view's travel
   is shorter by 10 to 40 pixels at each corrected end; every one of these stages is still at least as wide
@@ -443,6 +448,11 @@ machine code, with the addresses found by tracing the games in MAME.
   needed 56 pixels. In WIDE the game's text routines run from copies that draw into a buffer in RAM, and once
   a frame the buffer is copied to the screen 7 columns further right. A short dispatcher at each text routine
   picks the original or the copy by the screen mode.
+- **The bridge stage (new in v1.4.1):** this stage draws its background only in a window of about 520 pixels
+  around the 4:3 view, where every other stage is drawn end to end. At the stage's two ends the wider view ran
+  out of that window and showed a black block 31 to 48 pixels wide. On this stage the view now stays inside
+  the window, so at the ends it shows a little of what the game draws past the 4:3 edge, and the fighters stop
+  40 to 48 pixels short of the screen edge.
 - **Menu:** SCREEN MODE is added to the game settings list before EXIT. It is read at boot, so it takes
   effect after a reset.
 - **Memory check:** when a SIMM fails the game halts on purpose; in WIDE the last results are now drawn before
@@ -457,6 +467,17 @@ Warzard has no wide mode either and is patched the same way as the JoJo games, w
 - **Where the code lives:** the patch's code is in program SIMM 2, which the 8 MB game does not use itself.
 - **Sprites and backgrounds:** the horizontal offset is changed only while the game writes the scroll
   registers in the vertical blank, so the game's own logic never sees it.
+- **Backdrops that do not scroll (new in v1.4.1):** some stages have a background layer that stays put while
+  the floor scrolls. The patch used to slide it with everything else, and on the ice stage the sky ran out of
+  picture: a black block up to 48 pixels wide in the top third of the screen at the stage's ends. Such layers
+  now stay centered.
+- **The view is held at the stage ends on every stage (new in v1.4.1):** two stages (the bonus stage with the
+  statue and the stage with the stone faces) move their view through different code from the other eight, and
+  the patch did not hold the wider view at their ends: it ran 56 pixels past each end. On the bonus stage the
+  artwork also stops short of the stage's right end, and a 27-pixel slice of the left wall showed on the right
+  edge of the screen. The view now stops at the ends on these two stages as well, and on the bonus stage where
+  the artwork stops. It also stays put after a K.O.; before, the picture slid back to the middle once the
+  fight was over.
 - **Text on NORMAL:** the game's own text code runs untouched (since v1.3.0); only WIDE uses the copy.
 - **Menu:** SCREEN MODE is on both the English and the Japanese settings page, and the width changes as soon
   as the setting is saved. The Japanese font has no character for "wide" here either, so the patch makes one.
