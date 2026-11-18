@@ -70,8 +70,11 @@ no-CD / Darksoft setup), or "Custom SH2" if it still has the original security-c
 - The 2021-04-02 pack has two SIMM 5 files: SIMM5_Final_MakotoFIX.bin (Makoto Fix graphics) and \
 SIMM5_Final_reTHIRD.bin (the reTHIRD mod). Pick one, as with the original pack; widescreen works with both.
 
-On a Custom SH2 board, JoJo's Venture and JoJo HFTF stay 4:3: Darksoft's Custom SH2 files for those two banks \
-hold different revisions of the games, which this patch does not cover.'''),
+JoJo's Venture and JoJo HFTF on a Custom SH2 board: Darksoft's Custom SH2 files for those two banks hold \
+different revisions of the games, which the patch does not fit. The patched pack replaces them with the same \
+revision as the Standard SH2 files, stored the way a security cart needs. This was checked in MAME only, never \
+on a board. If either game misbehaves on your Custom SH2 board, go back to the original pack's Custom SH2 \
+files (the README says more).'''),
     ('Turning widescreen on', '''1. Enter the test menu (the TEST button inside the cabinet; F2 in MAME).
 2. Open the game's settings page (the one with difficulty, rounds and so on).
 3. Set SCREEN MODE to WIDE. In Warzard's Japanese menu it is "スクリーンモード", ノーマル / ワイド.

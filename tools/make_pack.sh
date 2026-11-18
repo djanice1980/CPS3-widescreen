@@ -15,10 +15,11 @@
 # sfiii3nr1.zip, which the build needs anyway in rom/, or any NO CD set such as redearthn, jojon, jojoban, sfiiina
 # in a --roms folder; each game uses its own when there).
 #
-# Games: SFIII New Generation (bank 0), Warzard (bank 1), 3rd Strike (bank 5), Makoto Fix (bank 6) and 4rd Strike
-# (bank 7) patched in both the Standard SH2 and the Custom SH2 program files, JoJo's Venture (bank 3) and JoJo's
-# Heritage for the Future (bank 4) in the Standard SH2 file only (Darksoft's bank 3 and 4 Custom files are other
-# revisions of the games), everything else as Darksoft has it. (2nd Impact, bank 2, has its own wide option.)
+# Games: SFIII New Generation (bank 0), Warzard (bank 1), JoJo's Venture (bank 3), JoJo's Heritage for the Future
+# (bank 4), 3rd Strike (bank 5), Makoto Fix (bank 6) and 4rd Strike (bank 7), patched in both the Standard SH2 and
+# the Custom SH2 program files. Darksoft's bank 3 and 4 Custom files hold other revisions of the two JoJo games:
+# those two Custom banks are written anew from the patched Standard program (tools/custom_map.py). Everything
+# else stays as Darksoft has it. (2nd Impact, bank 2, has its own wide option.)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [ $# -ge 2 ] || { sed -n '2,/^set -e/p' "$0" | sed '$d'; exit 2; }
@@ -72,11 +73,18 @@ open('$B/banks/bank1-custom.bin', 'wb').write(read_program_bank('$PACK/SIMM 1-2'
     echo '== New Generation (bank 0): the screen mode item'
     "$ROOT/tools/build_sfiiina.sh" "$B/banks/bank0-std.bin"
 
+    echo '== JoJo HFTF (bank 4): which halfwords of its program are instructions (for the Custom SH2 image)'
+    mkdir -p "$B/jojoba" "$B/jojo-v"
+    python3 "$ROOT/tools/custom_map.py" make "$PACK" 4 jojoba "$B/jojoba/custom-map.json"
     echo '== JoJo HFTF (bank 4): wide mode and its screen mode item'
-    python3 "$ROOT/tools/build_jojoba.py" jojoba "$B/banks/bank4-std.bin" "$B/jojoba" | grep -v 'MESA\|pci id'
+    python3 "$ROOT/tools/build_jojoba.py" jojoba "$B/banks/bank4-std.bin" "$B/jojoba" "$B/jojoba/custom-map.json" \
+        | grep -v 'MESA\|pci id'
 
+    echo "== JoJo's Venture (bank 3): which halfwords of its program are instructions"
+    python3 "$ROOT/tools/custom_map.py" make "$PACK" 3 jojo "$B/jojo-v/custom-map.json"
     echo "== JoJo's Venture (bank 3): wide mode and its screen mode item"
-    python3 "$ROOT/tools/build_jojoba.py" jojo "$B/banks/bank3-std.bin" "$B/jojo-v" | grep -v 'MESA\|pci id'
+    python3 "$ROOT/tools/build_jojoba.py" jojo "$B/banks/bank3-std.bin" "$B/jojo-v" "$B/jojo-v/custom-map.json" \
+        | grep -v 'MESA\|pci id'
 
     echo '== Warzard (bank 1): wide mode and its screen mode item'
     python3 "$ROOT/tools/build_warzard.py" "$B/banks/bank1-std.bin" "$B/warzard" "$B/banks/bank1-custom.bin" | grep -v '^  '
@@ -88,7 +96,11 @@ open('$B/banks/bank1-custom.bin', 'wb').write(read_program_bank('$PACK/SIMM 1-2'
     cp "$B/warzard/warzard-wide.json" "$P/bank1-warzard.json"
     cp "$B/warzard/warzard-code.json" "$P/bank1-warzard-code.json"
     cp "$B/jojo-v/jojo-wide.json" "$P/bank3-jojos-venture.json"
+    cp "$B/jojo-v/jojo-code.json" "$P/bank3-jojos-venture-code.json"
+    cp "$B/jojo-v/custom-map.json" "$P/bank3-jojos-venture-custom-map.json"
     cp "$B/jojoba/jojoba-wide.json" "$P/bank4-jojos-bizarre-adventure.json"
+    cp "$B/jojoba/jojoba-code.json" "$P/bank4-jojos-bizarre-adventure-code.json"
+    cp "$B/jojoba/custom-map.json" "$P/bank4-jojos-bizarre-adventure-custom-map.json"
     cp "$B/sfiii3/sfiii3nr1-wide.json" "$P/bank5-sfiii-3rd-strike.json"
     cp "$B/sfiii3/code.json" "$P/bank5-sfiii-3rd-strike-code.json"
     cp "$B/banks/makoto-wide.json" "$P/bank6-sfiii-makoto-fix.json"

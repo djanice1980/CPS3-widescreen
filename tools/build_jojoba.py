@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build the widescreen patch of a CPS3 JoJo game (Darksoft Standard SH2 program, plain):
 
-    build_jojoba.py jojoba <bank 4 program (16 MB)> <out dir>    Heritage for the Future (bank 4)
-    build_jojoba.py jojo <bank 3 program (16 MB)> <out dir>      JoJo's Venture (bank 3)
+    build_jojoba.py jojoba <bank 4 program (16 MB)> <out dir> [<custom map>]    Heritage for the Future (bank 4)
+    build_jojoba.py jojo <bank 3 program (16 MB)> <out dir> [<custom map>]      JoJo's Venture (bank 3)
 
 No source exists for these games, so the patch is built from addresses found in their programs (GAMES below;
 Venture's were mapped from HFTF's with tools/sigfind.py and tools/litmap.py: the same engine, the same code at
@@ -12,7 +12,9 @@ other addresses). src/jojoba/wide.c is the module for both, its game addresses i
  2. copy the text routines twice: copy A as they are, copy B drawing into the module's RAM shadow of the text
     tile map (its text-RAM literals changed); each routine's entry gets a jump to a dispatcher that runs copy B
     in wide mode, copy A otherwise. The copies are verbatim contiguous blocks, so their branches and literal
-    pools stay valid; tools/sh2flow.py checks that nothing in them reaches outside the block;
+    pools stay valid; tools/sh2flow.py checks that nothing in them reaches outside the block. Which halfwords
+    of a copy are instructions (a Custom SH2 image stores those encrypted) is what the original halfwords are:
+    from <custom map> (tools/custom_map.py), or without one from tools/sh2map.py's analysis of the program;
  3. point the method tables at the module's wrappers (camera task, screen offset step and reset, set screen
     mode, text plane base); the task scheduler's end-of-pass step calls the module's frame step (the shadow to
     text RAM) first;
@@ -21,6 +23,7 @@ other addresses). src/jojoba/wide.c is the module for both, its game addresses i
  6. write <out>/<game>-wide-prog.bin, <out>/<game>-code.json (instruction ranges, for Custom carts) and
     <out>/<game>-wide.json (the patch, tools/make_patch.py).
 """
+import hashlib
 import json
 import os
 import re
@@ -334,6 +337,22 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     stock = open(prog_path, 'rb').read()
     assert len(stock) == SIZE
+    # the stock program's instruction halfwords (for the copies)
+    if len(sys.argv) > 4:
+        import custom_map
+        cmap = custom_map.load(sys.argv[4])
+        if hashlib.sha256(stock).hexdigest() != cmap['standard_sha256']:
+            sys.exit(f'{sys.argv[4]} was not made for {prog_path}')
+        stock_inst = cmap['inst']
+
+        def is_inst(a):
+            return bool(stock_inst[(a - BASE) // 2])
+    else:
+        import sh2map
+        flow = sh2map.analyze(stock, BASE, log=lambda line: None)
+
+        def is_inst(a):
+            return a in flow.code
     img = bytearray(stock)
     p = Prog(stock, BASE)
     code_ranges = []  # (addr, len) of new instructions
@@ -361,7 +380,14 @@ def main():
                 struct.pack_into('>I', blk, t - lo, COPY_B_LITERALS[p.l(t)])
             print(f'  {lo:08X}: {len(pools)} text RAM literal(s) moved to the shadow')
         put(at, bytes(blk))
-        code_ranges.extend((at + a - lo, 2) for a in sorted(code))
+        # sh2flow's reach() does not follow bsr, so `code` is only part of the block's instructions
+        missing = [a for a in code if not is_inst(a)]
+        if missing:
+            sys.exit(f'{lo:08X}-{hi:08X}: reached from the entries but not an instruction in the map: '
+                     + ', '.join(f'{a:08X}' for a in sorted(missing)[:6]))
+        inst = [a for a in range(lo, hi, 2) if is_inst(a)]
+        code_ranges.extend((at + a - lo, 2) for a in inst)
+        print(f'  {lo:08X}: {len(inst)} of {(hi - lo) // 2} halfwords are instructions')
         return {e: at + e - lo for e in entries}
 
     # 2. text routine copies and dispatchers
